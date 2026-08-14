@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# The database and the real config never get committed.
+stock.db
+stock.db-journal
+stock.db-wal
+stock.db-shm
+.env

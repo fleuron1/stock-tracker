@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+
+{% block content %}
+<h1>History</h1>
+<p class="muted">Every movement, oldest at the bottom. Nothing here is ever
+   edited or deleted.</p>
+
+<form class="filters" method="get" action="/history">
+  <label>Item
+    <select name="item_id">
+      <option value="">All</option>
+      {% for i in items %}
+      <option value="{{ i.id }}" {% if f_item == i.id %}selected{% endif %}>{{ i.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Person
+    <select name="person_id">
+      <option value="">All</option>
+      {% for p in people %}
+      <option value="{{ p.id }}" {% if f_person == p.id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Action
+    <select name="kind">
+      <option value="">All</option>
+      {% for key, label in tx_labels.items() %}
+      <option value="{{ key }}" {% if f_kind == key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>From <input type="date" name="date_from" value="{{ f_from }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ f_to }}"></label>
+  <button type="submit">Filter</button>
+  <a class="btn" href="/history">Clear</a>
+</form>
+
+{% if rows %}
+<table>
+  <thead><tr><th>When</th><th>What</th><th>Item</th><th>Tag</th><th>Qty</th>
+             <th>Person</th><th>Done by</th><th>Note</th></tr></thead>
+  <tbody>
+    {% for t in rows %}
+    <tr>
+      <td class="muted nowrap">{{ t.ts }}</td>
+      <td>{{ tx_labels.get(t.kind, t.kind) }}</td>
+      <td><a href="/items/{{ t.item_id }}">{{ t.item_name }}</a></td>
+      <td class="mono">{{ t.asset_tag or '' }}</td>
+      <td class="{{ 'neg' if t.qty_delta < 0 else 'pos' if t.qty_delta > 0 else '' }}">
+        {{ '%+d'|format(t.qty_delta) if t.qty_delta else '' }}</td>
+      <td>{{ t.person_name or '' }}</td>
+      <td>{{ t.actor }}</td>
+      <td class="muted">{{ t.note }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="muted">{{ rows|length }} entr{{ 'y' if rows|length == 1 else 'ies' }}.
+   <a href="/data/export/history{% if query %}?{{ query }}{% endif %}">Export this view to CSV</a></p>
+{% else %}
+<p class="empty">Nothing matches those filters.</p>
+{% endif %}
+{% endblock %}

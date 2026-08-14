@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ 'Edit ' + item.name if item else 'New item' }}{% endblock %}
+
+{% block content %}
+{{ m.people_datalist(people) }}
+<h1>{% if item %}Edit {{ item.name }}{% else %}New {{ 'asset' if kind == 'asset' else 'consumable' }}{% endif %}</h1>
+
+{% if not item %}
+<p class="muted">
+  {% if kind == 'asset' %}
+    An <b>asset</b> is one unit you can hand to one person &mdash; a laptop, a dock, a monitor.
+    <a href="/items/new?kind=consumable">Adding a consumable instead?</a>
+  {% else %}
+    A <b>consumable</b> is a pile of identical things you count &mdash; cables, keyboards, toner.
+    <a href="/items/new?kind=asset">Adding an asset instead?</a>
+  {% endif %}
+</p>
+{% endif %}
+
+<form method="post" class="card stacked"
+      action="{% if item %}/items/{{ item.id }}/edit{% else %}/items/new{% endif %}">
+  {% if not item %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+
+  <label>Name
+    <input type="text" name="name" value="{{ item.name if item else '' }}" required autofocus
+           placeholder="{{ 'Dell Latitude 5540' if kind == 'asset' else 'Cat6 patch cable 2m' }}">
+  </label>
+
+  <label>Category
+    <input type="text" name="category" list="category-list"
+           value="{{ item.category if item else '' }}"
+           placeholder="{{ 'Laptop' if kind == 'asset' else 'Cables' }}">
+  </label>
+  <datalist id="category-list">
+    {% for c in categories %}<option value="{{ c }}"></option>{% endfor %}
+  </datalist>
+
+  {% if kind == 'asset' %}
+    <label>Asset tag / barcode
+      <input type="text" name="asset_tag" value="{{ item.asset_tag or '' if item else '' }}"
+             placeholder="IT-00123">
+      <small>Scanning this tag in the search box jumps straight to this item.</small>
+    </label>
+  {% endif %}
+
+  <label>Serial number
+    <input type="text" name="serial_number" value="{{ item.serial_number if item else '' }}">
+  </label>
+
+  <label>Location
+    <input type="text" name="location" value="{{ item.location if item else '' }}"
+           placeholder="Shelf B, bin 3">
+  </label>
+
+  {% if kind == 'consumable' %}
+    {% if not item %}
+    <label>How many are there now
+      <input type="number" name="quantity" min="0" value="0" required>
+    </label>
+    {% else %}
+    <p class="muted">In stock: <b>{{ item.quantity }}</b> &mdash; change this with
+       &ldquo;Put in&rdquo;, &ldquo;Take out&rdquo; or a stocktake on the
+       <a href="/items/{{ item.id }}">item page</a>, so the change is recorded.</p>
+    {% endif %}
+
+    <label>Tell me when it drops to
+      <input type="number" name="reorder_level" min="0"
+             value="{{ item.reorder_level if item else 0 }}">
+      <small>0 means never flag it. Anything at or below this shows up on the dashboard.</small>
+    </label>
+  {% endif %}
+
+  {% if item and item.kind == 'asset' and item.status != 'assigned' %}
+    <label>Status
+      <select name="status">
+        {% for key in ['in_stock', 'repair', 'retired'] %}
+        <option value="{{ key }}" {% if item.status == key %}selected{% endif %}>
+          {{ status_labels[key] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  {% endif %}
+
+  <label>Notes
+    <textarea name="notes" rows="3">{{ item.notes if item else '' }}</textarea>
+  </label>
+
+  {{ m.actor_field(people, actor) }}
+
+  <div class="actions-row">
+    <button class="primary" type="submit">{{ 'Save' if item else 'Add it' }}</button>
+    <a class="btn" href="{% if item %}/items/{{ item.id }}{% else %}/items{% endif %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

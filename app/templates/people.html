@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+
+{% block content %}
+<h1>People</h1>
+<p class="muted">Everyone here can be handed an asset, and their name suggests
+   itself in the &ldquo;done by&rdquo; boxes. Set someone inactive when they
+   leave &mdash; their history stays.</p>
+
+<section class="card">
+  <h2>Add someone</h2>
+  <form method="post" action="/people" class="filters">
+    <label>Name <input type="text" name="name" required autofocus></label>
+    <label>Email <input type="email" name="email" placeholder="optional"></label>
+    <label>Department <input type="text" name="department" placeholder="optional"></label>
+    <button class="primary" type="submit">Add</button>
+  </form>
+</section>
+
+{% if people %}
+{# A <form> can't legally wrap table rows, so each row's form lives here and
+   the inputs point at it by id. #}
+{% for p in people %}
+<form id="person-{{ p.id }}" method="post" action="/people/{{ p.id }}/edit"></form>
+{% endfor %}
+
+<table class="editable">
+  <thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Holding</th><th></th></tr></thead>
+  <tbody>
+    {% for p in people %}
+    <tr class="{% if not p.active %}inactive{% endif %}">
+      <td><input form="person-{{ p.id }}" type="text" name="name" value="{{ p.name }}" required></td>
+      <td><input form="person-{{ p.id }}" type="email" name="email" value="{{ p.email }}"></td>
+      <td><input form="person-{{ p.id }}" type="text" name="department" value="{{ p.department }}"></td>
+      <td>
+        {% if holdings[p.id] %}
+          {% for i in holdings[p.id] %}
+            <a href="/items/{{ i.id }}">{{ i.name }}</a>{{ '' if loop.last else ', ' }}
+          {% endfor %}
+        {% else %}
+          <span class="muted">nothing</span>
+        {% endif %}
+      </td>
+      <td class="nowrap">
+        <label class="check"><input form="person-{{ p.id }}" type="checkbox" name="active"
+               value="1" {% if p.active %}checked{% endif %}> active</label>
+        <button form="person-{{ p.id }}" type="submit">Save</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="muted">Someone holding kit can&rsquo;t be tidied away &mdash; check their
+   items back in first, on each item&rsquo;s page.</p>
+{% else %}
+<p class="empty">Nobody yet. Add the first person above.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Import / export{% endblock %}
+
+{% block content %}
+<h1>Import &amp; export</h1>
+
+<div class="cols">
+  <section class="card">
+    <h2>Export</h2>
+    <p>Both files open straight in Excel.</p>
+    <div class="actions-row">
+      <a class="btn primary" href="/data/export/items">Current stock (CSV)</a>
+      <a class="btn" href="/data/export/history">Full history (CSV)</a>
+    </div>
+    <p class="muted">To export part of the history &mdash; one person, one month
+       &mdash; filter it on the <a href="/history">History</a> page and use the
+       export link there.</p>
+  </section>
+
+  <section class="card">
+    <h2>Import</h2>
+    <p>Load an existing spreadsheet. Save it as CSV first.</p>
+    <form method="post" action="/data/import" enctype="multipart/form-data" class="stacked">
+      <label>CSV file <input type="file" name="file" accept=".csv,text/csv" required></label>
+      <label>Done by <input type="text" name="actor" value="{{ actor }}"
+                            placeholder="your name"></label>
+      <button class="primary" type="submit">Import</button>
+    </form>
+    <details>
+      <summary>What the file needs to look like</summary>
+      <ul>
+        <li>A header row. Only <b>name</b> is required; column order doesn&rsquo;t matter.</li>
+        <li>Recognised columns:
+          <span class="mono">{{ item_columns|join(', ') }}</span>.
+          Common alternatives like <span class="mono">qty</span>,
+          <span class="mono">tag</span>, <span class="mono">serial</span> and
+          <span class="mono">min level</span> are understood too.</li>
+        <li>No <b>kind</b> column? A row with a quantity is treated as a
+          consumable, anything else as a single asset.</li>
+        <li>Rows are matched to what&rsquo;s already here by asset tag, or by name
+          and category when there is no tag &mdash; so re-importing updates rather
+          than duplicates.</li>
+        <li>If anything in the file is wrong, <b>nothing</b> is imported and
+          you&rsquo;ll get the line numbers.</li>
+        <li>Imports never change who is holding an asset. Use check in / check out
+          for that.</li>
+      </ul>
+      <p>The simplest way to see the format is to
+         <a href="/data/export/items">export what you have</a> and edit that file.</p>
+    </details>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Low-stock email</h2>
+  {% if alert_problem %}
+    <p class="flash bad">Off &mdash; {{ alert_problem }}</p>
+    <p class="muted">Low stock still shows on the dashboard. To have it emailed
+       out as well, copy <span class="mono">.env.example</span> to
+       <span class="mono">.env</span> in the app folder, fill in your mail
+       server details, set <span class="mono">ALERTS_ENABLED=true</span> and
+       restart the app.</p>
+  {% else %}
+    <p class="flash ok">On &mdash; alerts go to {{ alert_to }},
+       at most once every {{ cooldown }} hours per item.</p>
+  {% endif %}
+  <form method="post" action="/data/test-email">
+    <button type="submit" {% if alert_problem %}disabled{% endif %}>Send a test email</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Backups</h2>
+  <p>Everything lives in one file:</p>
+  <p class="mono">{{ db_path }}</p>
+  <p class="muted">Copy that file somewhere safe on a schedule and you have a
+     complete backup &mdash; items, people and the whole history.</p>
+</section>
+{% endblock %}

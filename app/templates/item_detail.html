@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ item.name }}{% endblock %}
+
+{% block content %}
+{{ m.people_datalist(people) }}
+
+<div class="page-head">
+  <div>
+    <h1>{{ item.name }} {{ m.status_pill(item) }}</h1>
+    <p class="muted">
+      {{ 'Asset' if item.kind == 'asset' else 'Consumable' }}
+      {% if item.category %} &middot; {{ item.category }}{% endif %}
+      {% if item.asset_tag %} &middot; tag <span class="mono">{{ item.asset_tag }}</span>{% endif %}
+    </p>
+  </div>
+  <div class="actions-row">
+    <a class="btn" href="/items/{{ item.id }}/edit">Edit details</a>
+    <a class="btn" href="/history?item_id={{ item.id }}">This item&rsquo;s history</a>
+  </div>
+</div>
+
+<div class="cols">
+  <section class="card">
+    <h2>Details</h2>
+    <dl>
+      <dt>Location</dt><dd>{{ item.location or '&mdash;'|safe }}</dd>
+      <dt>Serial</dt><dd class="mono">{{ item.serial_number or '&mdash;'|safe }}</dd>
+      {% if item.kind == 'asset' %}
+        <dt>Status</dt><dd>{{ status_labels.get(item.status, item.status) }}</dd>
+        <dt>Held by</dt><dd>{{ item.assigned_to_name or 'nobody' }}</dd>
+      {% else %}
+        <dt>In stock</dt><dd><b>{{ item.quantity }}</b></dd>
+        <dt>Reorder at</dt>
+        <dd>{{ item.reorder_level if item.reorder_level else 'not set' }}</dd>
+      {% endif %}
+      <dt>Added</dt><dd class="muted">{{ item.created_at }}</dd>
+      <dt>Last change</dt><dd class="muted">{{ item.updated_at }}</dd>
+    </dl>
+    {% if item.notes %}<p class="notes">{{ item.notes }}</p>{% endif %}
+  </section>
+
+  <section class="card actions">
+    <h2>Move it</h2>
+
+    {% if item.kind == 'asset' %}
+      {% if item.status == 'in_stock' %}
+        <form method="post" action="/items/{{ item.id }}/checkout">
+          <h3>Check out</h3>
+          {% if people %}
+            {{ m.person_select(people) }}
+          {% else %}
+            <p class="empty">Add someone on the <a href="/people">People</a> page first.</p>
+          {% endif %}
+          {{ m.actor_field(people, actor) }}
+          <label>Note <input type="text" name="note" placeholder="optional"></label>
+          <button class="primary" type="submit" {% if not people %}disabled{% endif %}>Check out</button>
+        </form>
+
+        <form method="post" action="/items/{{ item.id }}/status" class="inline-form">
+          <input type="hidden" name="status" value="repair">
+          {{ m.actor_field(people, actor) }}
+          <button type="submit">Send to repair</button>
+        </form>
+
+        <form method="post" action="/items/{{ item.id }}/retire" class="inline-form"
+              onsubmit="return confirm('Retire this asset? It stays in the database with its history, but leaves the shelf.')">
+          {{ m.actor_field(people, actor) }}
+          <label>Reason <input type="text" name="note" placeholder="optional"></label>
+          <button type="submit">Retire</button>
+        </form>
+
+      {% elif item.status == 'assigned' %}
+        <form method="post" action="/items/{{ item.id }}/checkin">
+          <h3>Check in from {{ item.assigned_to_name }}</h3>
+          {{ m.actor_field(people, actor) }}
+          <label>Note <input type="text" name="note" placeholder="optional"></label>
+          <label class="check"><input type="checkbox" name="to_repair" value="1">
+            Came back faulty &mdash; send to repair</label>
+          <button class="primary" type="submit">Check in</button>
+        </form>
+
+      {% elif item.status == 'repair' %}
+        <form method="post" action="/items/{{ item.id }}/status">
+          <h3>In repair</h3>
+          <input type="hidden" name="status" value="in_stock">
+          {{ m.actor_field(people, actor) }}
+          <button class="primary" type="submit">Repaired &mdash; back on the shelf</button>
+        </form>
+        <form method="post" action="/items/{{ item.id }}/retire" class="inline-form"
+              onsubmit="return confirm('Retire this asset?')">
+          {{ m.actor_field(people, actor) }}
+          <label>Reason <input type="text" name="note" placeholder="beyond repair"></label>
+          <button type="submit">Retire</button>
+        </form>
+
+      {% else %}
+        <p class="empty">This asset is retired. Its history is kept below.</p>
+      {% endif %}
+
+    {% else %}
+      <form method="post" action="/items/{{ item.id }}/stock-out">
+        <h3>Take out</h3>
+        <label>How many <input type="number" name="qty" min="1" max="{{ item.quantity }}"
+                              value="1" required></label>
+        {{ m.person_select(people, required=False, blank='(nobody in particular)') }}
+        {{ m.actor_field(people, actor) }}
+        <label>Note <input type="text" name="note" placeholder="optional"></label>
+        <button class="primary" type="submit" {% if not item.quantity %}disabled{% endif %}>
+          Take out</button>
+      </form>
+
+      <form method="post" action="/items/{{ item.id }}/stock-in">
+        <h3>Put in</h3>
+        <label>How many <input type="number" name="qty" min="1" value="1" required></label>
+        {{ m.actor_field(people, actor) }}
+        <label>Note <input type="text" name="note" placeholder="e.g. new delivery"></label>
+        <button type="submit">Put in</button>
+      </form>
+
+      <form method="post" action="/items/{{ item.id }}/adjust" class="inline-form">
+        <h3>Stocktake</h3>
+        <label>Counted <input type="number" name="new_qty" min="0"
+                              value="{{ item.quantity }}" required></label>
+        {{ m.actor_field(people, actor) }}
+        <button type="submit">Correct the count</button>
+      </form>
+    {% endif %}
+  </section>
+</div>
+
+<section>
+  <h2>History</h2>
+  {% if history %}
+  <table>
+    <thead><tr><th>When</th><th>What</th><th>Qty</th><th>Person</th><th>Done by</th><th>Note</th></tr></thead>
+    <tbody>
+      {% for t in history %}
+      <tr>
+        <td class="muted nowrap">{{ t.ts }}</td>
+        <td>{{ tx_labels.get(t.kind, t.kind) }}</td>
+        <td class="{{ 'neg' if t.qty_delta < 0 else 'pos' if t.qty_delta > 0 else '' }}">
+          {{ '%+d'|format(t.qty_delta) if t.qty_delta else '' }}</td>
+        <td>{{ t.person_name or '' }}</td>
+        <td>{{ t.actor }}</td>
+        <td class="muted">{{ t.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No movements yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

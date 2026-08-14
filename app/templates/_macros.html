@@ -1,0 +1,36 @@
+{# Shared form bits. #}
+
+{% macro actor_field(people, actor, label='Done by') %}
+  {# Free text with suggestions rather than a strict dropdown: there is no
+     login, so this is a signature, and it must work before anyone has been
+     added to the People list. The last value used is remembered in a cookie. #}
+  <label>{{ label }}
+    <input type="text" name="actor" value="{{ actor }}" list="people-names"
+           placeholder="your name" autocomplete="off" required>
+  </label>
+{% endmacro %}
+
+{% macro people_datalist(people) %}
+  <datalist id="people-names">
+    {% for p in people %}<option value="{{ p.name }}"></option>{% endfor %}
+  </datalist>
+{% endmacro %}
+
+{% macro person_select(people, name='person_id', required=True, blank='') %}
+  <label>Person
+    <select name="{{ name }}" {% if required %}required{% endif %}>
+      {% if blank %}<option value="">{{ blank }}</option>{% endif %}
+      {% for p in people %}<option value="{{ p.id }}">{{ p.name }}{% if p.department %} &mdash; {{ p.department }}{% endif %}</option>{% endfor %}
+    </select>
+  </label>
+{% endmacro %}
+
+{% macro status_pill(item) %}
+  {% if item.kind == 'asset' %}
+    <span class="pill s-{{ item.status }}">{{ status_labels.get(item.status, item.status) }}</span>
+  {% elif item.reorder_level and item.quantity <= item.reorder_level %}
+    <span class="pill s-low">Low &mdash; {{ item.quantity }} left</span>
+  {% else %}
+    <span class="pill s-in_stock">{{ item.quantity }} in stock</span>
+  {% endif %}
+{% endmacro %}

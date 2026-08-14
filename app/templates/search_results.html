@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Search: {{ q }}{% endblock %}
+
+{% block content %}
+<h1>{{ results|length }} result{{ '' if results|length == 1 else 's' }} for &ldquo;{{ q }}&rdquo;</h1>
+
+{% if results %}
+<table>
+  <thead><tr><th>Item</th><th>Kind</th><th>Tag</th><th>Location</th><th>Status</th><th>With</th></tr></thead>
+  <tbody>
+    {% for i in results %}
+    <tr>
+      <td><a href="/items/{{ i.id }}">{{ i.name }}</a>
+          {% if i.category %}<span class="muted">{{ i.category }}</span>{% endif %}</td>
+      <td class="muted">{{ 'Asset' if i.kind == 'asset' else 'Consumable' }}</td>
+      <td class="mono">{{ i.asset_tag or '' }}</td>
+      <td>{{ i.location }}</td>
+      <td>{{ m.status_pill(i) }}</td>
+      <td>{{ i.assigned_to_name or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">Nothing matched. Try part of a name, a serial, or a location &mdash;
+   or <a href="/items/new">add it</a>.</p>
+{% endif %}
+{% endblock %}

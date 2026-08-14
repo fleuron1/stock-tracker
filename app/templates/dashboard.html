@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}IT Stock &mdash; Dashboard{% endblock %}
+{# The search box is focused on load so a barcode scanner works the moment
+   this page opens: scan, Enter, item page. #}
+{% block searchfocus %}autofocus{% endblock %}
+
+{% block content %}
+<div class="stats">
+  <a class="stat" href="/items?kind=asset">
+    <b>{{ stats.assets_total }}</b><span>assets</span>
+  </a>
+  <a class="stat" href="/items?kind=asset&status=in_stock">
+    <b>{{ stats.assets_in_stock }}</b><span>on the shelf</span>
+  </a>
+  <a class="stat {% if stats.assets_assigned %}accent{% endif %}" href="/items?kind=asset&status=assigned">
+    <b>{{ stats.assets_assigned }}</b><span>checked out</span>
+  </a>
+  <a class="stat" href="/items?kind=asset&status=repair">
+    <b>{{ stats.assets_repair }}</b><span>in repair</span>
+  </a>
+  <a class="stat" href="/items?kind=consumable">
+    <b>{{ stats.consumable_units }}</b><span>consumable units</span>
+  </a>
+  <a class="stat {% if low_stock %}warn{% endif %}" href="/items?kind=consumable">
+    <b>{{ low_stock|length }}</b><span>low on stock</span>
+  </a>
+</div>
+
+<div class="actions-row">
+  <a class="btn primary" href="/items/new?kind=asset">+ New asset</a>
+  <a class="btn" href="/items/new?kind=consumable">+ New consumable</a>
+</div>
+
+{% if low_stock %}
+<section>
+  <h2>Running low</h2>
+  <table>
+    <thead><tr><th>Item</th><th>Left</th><th>Reorder at</th><th>Location</th></tr></thead>
+    <tbody>
+      {% for i in low_stock %}
+      <tr class="low">
+        <td><a href="/items/{{ i.id }}">{{ i.name }}</a>
+            {% if i.category %}<span class="muted">{{ i.category }}</span>{% endif %}</td>
+        <td><b>{{ i.quantity }}</b></td>
+        <td>{{ i.reorder_level }}</td>
+        <td>{{ i.location }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section>
+  <h2>Out right now ({{ out_now|length }})</h2>
+  {% if out_now %}
+  <table>
+    <thead><tr><th>Item</th><th>Tag</th><th>With</th><th>Since</th></tr></thead>
+    <tbody>
+      {% for i in out_now %}
+      <tr>
+        <td><a href="/items/{{ i.id }}">{{ i.name }}</a></td>
+        <td class="mono">{{ i.asset_tag or '' }}</td>
+        <td>{{ i.assigned_to_name }}</td>
+        <td class="muted">{{ i.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Nothing is checked out.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Recent activity</h2>
+  {% if recent %}
+  <table>
+    <thead><tr><th>When</th><th>What</th><th>Item</th><th>Qty</th><th>Person</th><th>Done by</th></tr></thead>
+    <tbody>
+      {% for t in recent %}
+      <tr>
+        <td class="muted nowrap">{{ t.ts }}</td>
+        <td>{{ tx_labels.get(t.kind, t.kind) }}</td>
+        <td><a href="/items/{{ t.item_id }}">{{ t.item_name }}</a></td>
+        <td class="{{ 'neg' if t.qty_delta < 0 else 'pos' if t.qty_delta > 0 else '' }}">
+          {{ '%+d'|format(t.qty_delta) if t.qty_delta else '' }}</td>
+        <td>{{ t.person_name or '' }}</td>
+        <td>{{ t.actor }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/history">Full history &rarr;</a></p>
+  {% else %}
+  <p class="empty">Nothing has happened yet. Add an item to get started.</p>
+  {% endif %}
+</section>
+{% endblock %}
