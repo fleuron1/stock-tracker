@@ -80,7 +80,34 @@ a:hover { text-decoration: underline; }
 .topsearch input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .topsearch button { border-radius: 20px; padding: 8px 14px; }
 
+.whoami { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.whoami a { color: var(--ink); }
+.whoami button { padding: 6px 12px; font-size: 13px; }
+
 main { max-width: 1180px; margin: 0 auto; padding: 20px; }
+
+/* Sign-in page: no nav, just the form, centred. */
+.signin { max-width: 420px; margin: 8vh auto; padding: 20px; }
+.signin h1 { text-align: center; margin-bottom: 20px; font-size: 28px; }
+.signin .card { margin-bottom: 14px; }
+.setup-cmd {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+input[type=password] {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
 footer {
   max-width: 1180px;
   margin: 0 auto;

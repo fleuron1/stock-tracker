@@ -1,20 +1,8 @@
 {# Shared form bits. #}
 
-{% macro actor_field(people, actor, label='Done by') %}
-  {# Free text with suggestions rather than a strict dropdown: there is no
-     login, so this is a signature, and it must work before anyone has been
-     added to the People list. The last value used is remembered in a cookie. #}
-  <label>{{ label }}
-    <input type="text" name="actor" value="{{ actor }}" list="people-names"
-           placeholder="your name" autocomplete="off" required>
-  </label>
-{% endmacro %}
-
-{% macro people_datalist(people) %}
-  <datalist id="people-names">
-    {% for p in people %}<option value="{{ p.name }}"></option>{% endfor %}
-  </datalist>
-{% endmacro %}
+{# There used to be a "done by" box on every form. It's gone: the signed-in
+   user is recorded automatically, so nobody types their own name and nobody
+   can type someone else's. #}
 
 {% macro person_select(people, name='person_id', required=True, blank='') %}
   <label>Person

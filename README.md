@@ -23,6 +23,13 @@ installing anything locally. It takes about half a minute the first time, then
 the app opens in a preview tab. Each person who does this gets their own
 throwaway copy, so nothing you do in it touches anyone else.
 
+Since it's a fresh database there are no accounts yet, so create one in the
+Codespace terminal and sign in with it:
+
+```bash
+python -m app.users add demo --admin
+```
+
 To run it properly on a machine in your own IT room, carry on below.
 
 ## Getting started
@@ -39,6 +46,18 @@ to use — `http://localhost:8000` on this machine, and an
 `http://192.168.x.x:8000` address for everyone else.
 
 Stop it with Ctrl+C.
+
+**On a brand new install, create the first account** before anyone can sign in.
+From this folder, in a second window:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.users add yourname --admin
+```
+
+It asks for a password. That account can then create everyone else from the
+Users page — you only ever need the command line for this first one, or to
+rescue yourself if the admin password is lost. If you open the app before doing
+this, it tells you the same thing.
 
 Options:
 
@@ -65,10 +84,10 @@ New-NetFirewallRule -DisplayName "IT Stock app" -Direction Inbound -Protocol TCP
 LAN), not public Wi-Fi. To find the host's address by hand, run `ipconfig` and
 use the IPv4 address.
 
-**There is no login.** Anyone who can reach the page can change anything, and
-the "done by" box is a signature, not a verified identity. That's fine for a
-room where everyone is trusted; it is *not* fine on the open internet, so don't
-forward a port to this or put it behind a public DNS name as it stands.
+Everyone needs to sign in, so reaching the page isn't the same as being able to
+change things. It still runs over plain HTTP on the office network, though, so
+passwords cross the LAN unencrypted — don't forward a port to this or give it a
+public DNS name without putting HTTPS in front of it first.
 
 ### Starting it automatically when the PC boots
 
@@ -91,10 +110,12 @@ Task Scheduler → Create Task:
 - **On loan** is everything that's gone out and is expected back, with anything
   overdue at the top.
 - **An item's page** is where you move it: check out / check in for an asset,
-  put in / take out / stocktake for a consumable, each with a "done by" box.
-  Your name is remembered in a cookie so you're not retyping it all day.
+  put in / take out / stocktake for a consumable. Whatever you do is recorded
+  against whoever is signed in — there's nothing to type.
 - **People** is the staff list — who can be handed an asset. Mark someone
   inactive when they leave; their history stays.
+- **Users** (admins only) is who can *sign in*. See below — it's a different
+  list from People and does not overlap with it.
 - **History** is the full ledger, filterable, and exportable as it's filtered.
 
 Every entry writes its own description, so the log is readable months later
@@ -117,6 +138,37 @@ Anything a person types in a "note" box is kept *alongside* that description
 and shown in quotes, never instead of it — so a note can add the reason
 ("screen flickering") without hiding the facts. An edit that changes nothing
 writes no entry at all.
+
+### Signing in, and the two lists that sound alike
+
+There are two lists of names in this app and they are **not** the same thing:
+
+| | **Users** | **People** |
+|---|---|---|
+| Who | Staff who run the IT room | Whoever borrows equipment |
+| Sign in? | Yes, with a password | No — they never touch the app |
+| Managed on | Users page, by an admin | People page, by anyone |
+| Used for | The "done by" column in the history | Who an item is checked out or lent to |
+
+Someone can appear on both lists, but they don't have to, and adding to one
+never adds to the other. Usually only a handful of people need an account,
+while the People list can be as long as your staff list.
+
+The signed-in user is recorded against every change automatically — there's no
+"done by" box to fill in, and nobody can put someone else's name against
+something they did.
+
+**Admin accounts control accounts and nothing else.** An admin can create users,
+rename them, switch them off and reset passwords. They get no extra power over
+stock: every signed-in user can add items, lend, check in and run a stocktake
+equally.
+
+Anyone can change their own password from their name in the top-right corner.
+Doing so signs that account out everywhere, as does an admin resetting it or
+switching the account off.
+
+The last remaining admin can't be demoted or switched off, so it isn't possible
+to lock everyone out of the app.
 
 ### Lending things out
 
@@ -230,7 +282,9 @@ build step — plain HTML forms.
 
 ```
 app/
-  main.py           routes
+  main.py           routes, and the middleware that requires signing in
+  auth.py           passwords, sessions, accounts
+  users.py          account management from the command line
   inventory.py      the stock rules; the only module that changes stock
   models.py         database queries
   db.py             connection, schema and migrations
@@ -246,7 +300,17 @@ The database upgrades itself on start. `db.py` holds a schema version and a
 list of migrations; an existing `stock.db` only runs the steps it hasn't seen,
 so you can pull a new version and restart without losing anything.
 
-The rule worth keeping if you extend this: everything that moves stock goes
-through `inventory.py`, which writes the item change and its history row in
-one database transaction. That's what stops the log ever drifting out of step
-with the shelf.
+Two rules worth keeping if you extend this:
+
+Everything that moves stock goes through `inventory.py`, which writes the item
+change and its history row in one database transaction. That's what stops the
+log ever drifting out of step with the shelf.
+
+Signing in is enforced by middleware, not route by route, so a new page is
+private by default. Anything genuinely public has to be named explicitly in
+`PUBLIC_PATHS` — forgetting to protect a page isn't possible, only deliberately
+unprotecting one.
+
+Passwords are hashed with PBKDF2-HMAC-SHA256 (600,000 rounds, from the standard
+library). Sessions live in the database and only a hash of each cookie is
+stored, so a copy of `stock.db` is not a set of working session cookies.

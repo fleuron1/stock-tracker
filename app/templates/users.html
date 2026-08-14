@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<h1>Users</h1>
+<p class="muted">
+  Accounts that can sign in and use this app. Whoever is signed in is the name
+  recorded against every change in the history.
+</p>
+<p class="muted">
+  This is <b>not</b> the <a href="/people">People</a> list. People are who
+  equipment gets lent to and they don&rsquo;t need accounts; users are the staff
+  who run the IT room. Someone can be on both lists, and usually only a handful
+  of people need an account here.
+</p>
+
+<section class="card">
+  <h2>Add an account</h2>
+  <form method="post" action="/users" class="filters">
+    <label>Username <input type="text" name="username" required
+                           autocomplete="off" placeholder="jsmith"></label>
+    <label>Display name <input type="text" name="display_name"
+                               placeholder="Jo Smith"></label>
+    <label>Password <input type="password" name="password" required
+                           autocomplete="new-password"></label>
+    <label class="check"><input type="checkbox" name="is_admin" value="1">
+      Can manage users</label>
+    <button class="primary" type="submit">Create</button>
+  </form>
+  <p class="muted">At least 8 characters. Tell them the password and let them
+     change it themselves from their account page.</p>
+</section>
+
+{% for u in users %}
+<form id="user-{{ u.id }}" method="post" action="/users/{{ u.id }}/edit"></form>
+<form id="pw-{{ u.id }}" method="post" action="/users/{{ u.id }}/password"></form>
+{% endfor %}
+
+<table class="editable">
+  <thead>
+    <tr><th>Username</th><th>Display name</th><th>Admin</th><th>Active</th>
+        <th>Last signed in</th><th></th><th>New password</th></tr>
+  </thead>
+  <tbody>
+    {% for u in users %}
+    <tr class="{% if not u.active %}inactive{% endif %}">
+      <td class="mono">{{ u.username }}{% if u.id == user.id %}
+          <span class="muted">that&rsquo;s you</span>{% endif %}</td>
+      <td><input form="user-{{ u.id }}" type="text" name="display_name"
+                 value="{{ u.display_name }}" required></td>
+      <td><input form="user-{{ u.id }}" type="checkbox" name="is_admin" value="1"
+                 {% if u.is_admin %}checked{% endif %}></td>
+      <td><input form="user-{{ u.id }}" type="checkbox" name="active" value="1"
+                 {% if u.active %}checked{% endif %}></td>
+      <td class="muted nowrap">{{ u.last_login_at or 'never' }}</td>
+      <td><button form="user-{{ u.id }}" type="submit">Save</button></td>
+      <td class="nowrap">
+        <input form="pw-{{ u.id }}" type="password" name="password"
+               autocomplete="new-password" placeholder="set a new one">
+        <button form="pw-{{ u.id }}" type="submit">Set</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="muted">
+  Switching someone off signs them out immediately and stops them signing back
+  in; their name stays on everything they did. The last remaining admin
+  can&rsquo;t be switched off or demoted &mdash; otherwise nobody could let
+  anyone back in.
+</p>
+{% endblock %}

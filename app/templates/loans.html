@@ -3,7 +3,6 @@
 {% block title %}On loan{% endblock %}
 
 {% block content %}
-{{ m.people_datalist(people) }}
 
 <div class="page-head">
   <div>
@@ -63,15 +62,12 @@
               <input type="number" name="qty" min="1" max="{{ l.outstanding }}"
                      value="{{ l.outstanding }}" aria-label="How many back">
             {% endif %}
-            <input type="text" name="actor" value="{{ actor }}" list="people-names"
-                   placeholder="your name" aria-label="Done by" required>
             <button type="submit">Returned</button>
           </form>
           <form method="post" action="/loans/{{ l.id }}/due" class="row-form">
             <input type="hidden" name="back_to" value="/loans?state={{ state }}">
             <input type="date" name="due_on" value="{{ l.due_on or '' }}"
                    aria-label="New due date">
-            <input type="hidden" name="actor" value="{{ actor }}">
             <button type="submit">Change date</button>
           </form>
         {% endif %}

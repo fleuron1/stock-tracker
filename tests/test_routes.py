@@ -12,16 +12,41 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config
+from app import auth, config, db
+
+PASSWORD = "shelf-password"
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    # Point the app at a throwaway database before it starts up.
+    """A client already signed in as an admin called Ali.
+
+    Every route needs a signed-in user now, and the signed-in name is what
+    lands in the "done by" column -- so the display name here is what the
+    assertions about history entries expect.
+    """
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "test.db")
     from app.main import app
 
     with TestClient(app) as test_client:
+        conn = db.connect(config.DB_PATH)
+        auth.create_user(conn, "ali", PASSWORD, display_name="Ali", is_admin=True)
+        conn.close()
+        test_client.post("/login", data={"username": "ali", "password": PASSWORD},
+                         follow_redirects=False)
+        yield test_client
+
+
+@pytest.fixture()
+def anon(tmp_path, monkeypatch):
+    """A client that has not signed in, with one account existing."""
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "anon.db")
+    from app.main import app
+
+    with TestClient(app) as test_client:
+        conn = db.connect(config.DB_PATH)
+        auth.create_user(conn, "ali", PASSWORD, display_name="Ali", is_admin=True)
+        conn.close()
         yield test_client
 
 
@@ -119,9 +144,19 @@ def test_taking_out_more_than_there_is_is_refused_by_the_route(client):
         or ">2<" in client.get(f"/items/{item_id}").text
 
 
-def test_the_done_by_name_is_remembered_in_a_cookie(client):
-    add_asset(client)
-    assert client.cookies.get("stock_actor") == "Ali"
+def test_the_signed_in_user_is_recorded_as_having_done_it(client):
+    """Nobody types their name any more -- it comes from the session."""
+    item_id = add_asset(client)
+    person = add_person(client)
+    client.post(f"/items/{item_id}/checkout",
+                data={"person_id": person, "actor": "Someone Else"},
+                follow_redirects=False)
+
+    history = client.get(f"/items/{item_id}").text
+    assert "Ali" in history
+    # A name posted in the form is ignored; it can't be used to sign someone
+    # else's name against an action.
+    assert "Someone Else" not in history
 
 
 def test_low_stock_reaches_the_dashboard(client):

@@ -17,6 +17,9 @@
     <a href="/people" {% if request.url.path.startswith('/people') %}class="on"{% endif %}>People</a>
     <a href="/history" {% if request.url.path.startswith('/history') %}class="on"{% endif %}>History</a>
     <a href="/data" {% if request.url.path.startswith('/data') %}class="on"{% endif %}>Import / export</a>
+    {% if user and user.is_admin %}
+    <a href="/users" {% if request.url.path.startswith('/users') %}class="on"{% endif %}>Users</a>
+    {% endif %}
   </nav>
   <form class="topsearch" action="/search" method="get" role="search">
     <input type="search" name="q" placeholder="Scan or search&hellip;" aria-label="Scan or search"
@@ -25,6 +28,12 @@
        reliably on Enter when it has a submit button. #}
     <button type="submit" aria-label="Search">Go</button>
   </form>
+  {% if user %}
+  <div class="whoami">
+    <a href="/account" title="Your account">{{ user.display_name }}</a>
+    <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+  </div>
+  {% endif %}
 </header>
 
 <main>
@@ -34,7 +43,8 @@
 </main>
 
 <footer>
-  <span>IT room stock &mdash; anyone on this network can make changes, so put your name in the &ldquo;done by&rdquo; box.</span>
+  <span>IT room stock &mdash; every change is recorded against
+    {% if user %}{{ user.display_name }}{% else %}whoever is signed in{% endif %}.</span>
 </footer>
 
 <script>

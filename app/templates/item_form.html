@@ -3,7 +3,6 @@
 {% block title %}{{ 'Edit ' + item.name if item else 'New item' }}{% endblock %}
 
 {% block content %}
-{{ m.people_datalist(people) }}
 <h1>{% if item %}Edit {{ item.name }}{% else %}New {{ 'asset' if kind == 'asset' else 'consumable' }}{% endif %}</h1>
 
 {% if not item %}
@@ -86,7 +85,6 @@
     <textarea name="notes" rows="3">{{ item.notes if item else '' }}</textarea>
   </label>
 
-  {{ m.actor_field(people, actor) }}
 
   <div class="actions-row">
     <button class="primary" type="submit">{{ 'Save' if item else 'Add it' }}</button>

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Your account{% endblock %}
+
+{% block content %}
+<h1>Your account</h1>
+
+<section class="card">
+  <dl>
+    <dt>Username</dt><dd class="mono">{{ user.username }}</dd>
+    <dt>Name in history</dt><dd>{{ user.display_name }}</dd>
+    <dt>Can manage users</dt><dd>{{ 'yes' if user.is_admin else 'no' }}</dd>
+  </dl>
+  <p class="muted">Ask an admin if your display name needs changing &mdash;
+     it&rsquo;s what appears against everything you do.</p>
+</section>
+
+<section class="card stacked">
+  <h2>Change your password</h2>
+  <form method="post" action="/account/password">
+    <label>Current password
+      <input type="password" name="current" autocomplete="current-password" required>
+    </label>
+    <label>New password
+      <input type="password" name="new_password" autocomplete="new-password" required>
+      <small>At least 8 characters.</small>
+    </label>
+    <label>New password again
+      <input type="password" name="repeat" autocomplete="new-password" required>
+    </label>
+    <button class="primary" type="submit">Change it</button>
+  </form>
+  <p class="muted">Changing your password signs you out everywhere, including
+     here, so you&rsquo;ll sign in again straight away.</p>
+</section>
+{% endblock %}

@@ -23,8 +23,6 @@
     <p>Load an existing spreadsheet. Save it as CSV first.</p>
     <form method="post" action="/data/import" enctype="multipart/form-data" class="stacked">
       <label>CSV file <input type="file" name="file" accept=".csv,text/csv" required></label>
-      <label>Done by <input type="text" name="actor" value="{{ actor }}"
-                            placeholder="your name"></label>
       <button class="primary" type="submit">Import</button>
     </form>
     <details>

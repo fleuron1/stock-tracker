@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import config
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Applied in order to databases created by an older version. A brand-new
 # database gets the current schema straight from SCHEMA_SQL and skips these.
@@ -31,9 +31,40 @@ MIGRATIONS: dict[int, list[str]] = {
         WHERE kind = 'asset' AND status = 'assigned' AND assigned_to IS NOT NULL
         """,
     ],
+    # Version 4 added sign-in. Both new tables come from SCHEMA_SQL, which has
+    # already run by this point, so there is nothing to alter -- existing rows
+    # are untouched and the history keeps whatever names were typed before.
+    4: [],
 }
 
 SCHEMA_SQL = """
+-- Staff who sign in and operate the app. Deliberately NOT the same thing as
+-- `people`: a user is someone who runs the IT room, a person is someone kit
+-- gets lent to. Most people never need an account, and a user need not appear
+-- on the People list at all.
+CREATE TABLE IF NOT EXISTS users (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    username       TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    display_name   TEXT    NOT NULL,   -- what shows in the "done by" column
+    password_hash  TEXT    NOT NULL,
+    is_admin       INTEGER NOT NULL DEFAULT 0,
+    active         INTEGER NOT NULL DEFAULT 1,
+    created_at     TEXT    NOT NULL,
+    last_login_at  TEXT
+);
+
+-- Sign-in sessions, kept server-side so an account can be cut off at once by
+-- deleting its rows. Only a hash of each cookie value is stored, so a copy of
+-- the database is not a set of usable session cookies.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash  TEXT    PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at  TEXT    NOT NULL,
+    expires_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 CREATE TABLE IF NOT EXISTS people (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,

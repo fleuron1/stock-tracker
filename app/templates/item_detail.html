@@ -3,7 +3,6 @@
 {% block title %}{{ item.name }}{% endblock %}
 
 {% block content %}
-{{ m.people_datalist(people) }}
 
 <div class="page-head">
   <div>
@@ -57,20 +56,17 @@
             <small>Leave empty for an open-ended loan. Only dated loans are
                    chased.</small>
           </label>
-          {{ m.actor_field(people, actor) }}
           <label>Note <input type="text" name="note" placeholder="optional"></label>
           <button class="primary" type="submit" {% if not people %}disabled{% endif %}>Check out</button>
         </form>
 
         <form method="post" action="/items/{{ item.id }}/status" class="inline-form">
           <input type="hidden" name="status" value="repair">
-          {{ m.actor_field(people, actor) }}
           <button type="submit">Send to repair</button>
         </form>
 
         <form method="post" action="/items/{{ item.id }}/retire" class="inline-form"
               onsubmit="return confirm('Retire this asset? It stays in the database with its history, but leaves the shelf.')">
-          {{ m.actor_field(people, actor) }}
           <label>Reason <input type="text" name="note" placeholder="optional"></label>
           <button type="submit">Retire</button>
         </form>
@@ -78,7 +74,6 @@
       {% elif item.status == 'assigned' %}
         <form method="post" action="/items/{{ item.id }}/checkin">
           <h3>Check in from {{ item.assigned_to_name }}</h3>
-          {{ m.actor_field(people, actor) }}
           <label>Note <input type="text" name="note" placeholder="optional"></label>
           <label class="check"><input type="checkbox" name="to_repair" value="1">
             Came back faulty &mdash; send to repair</label>
@@ -89,12 +84,10 @@
         <form method="post" action="/items/{{ item.id }}/status">
           <h3>In repair</h3>
           <input type="hidden" name="status" value="in_stock">
-          {{ m.actor_field(people, actor) }}
           <button class="primary" type="submit">Repaired &mdash; back on the shelf</button>
         </form>
         <form method="post" action="/items/{{ item.id }}/retire" class="inline-form"
               onsubmit="return confirm('Retire this asset?')">
-          {{ m.actor_field(people, actor) }}
           <label>Reason <input type="text" name="note" placeholder="beyond repair"></label>
           <button type="submit">Retire</button>
         </form>
@@ -110,7 +103,6 @@
         <label>How many <input type="number" name="qty" min="1" max="{{ item.quantity }}"
                               value="1" required></label>
         {{ m.person_select(people, required=False, blank='(nobody in particular)') }}
-        {{ m.actor_field(people, actor) }}
         <label>Note <input type="text" name="note" placeholder="optional"></label>
         <button class="primary" type="submit" {% if not item.quantity %}disabled{% endif %}>
           Take out</button>
@@ -130,7 +122,6 @@
           <input type="date" name="due_on">
           <small>Leave empty for an open-ended loan.</small>
         </label>
-        {{ m.actor_field(people, actor) }}
         <label>Note <input type="text" name="note" placeholder="optional"></label>
         <button type="submit"
                 {% if not item.quantity or not people %}disabled{% endif %}>Lend</button>
@@ -139,7 +130,6 @@
       <form method="post" action="/items/{{ item.id }}/stock-in">
         <h3>Put in</h3>
         <label>How many <input type="number" name="qty" min="1" value="1" required></label>
-        {{ m.actor_field(people, actor) }}
         <label>Note <input type="text" name="note" placeholder="e.g. new delivery"></label>
         <button type="submit">Put in</button>
       </form>
@@ -148,7 +138,6 @@
         <h3>Stocktake</h3>
         <label>Counted <input type="number" name="new_qty" min="0"
                               value="{{ item.quantity }}" required></label>
-        {{ m.actor_field(people, actor) }}
         <button type="submit">Correct the count</button>
       </form>
     {% endif %}
@@ -182,8 +171,6 @@
               <input type="number" name="qty" min="1" max="{{ l.outstanding }}"
                      value="{{ l.outstanding }}" aria-label="How many back">
             {% endif %}
-            <input type="text" name="actor" value="{{ actor }}" list="people-names"
-                   placeholder="your name" aria-label="Done by" required>
             <button type="submit">Returned</button>
           </form>
           {% else %}

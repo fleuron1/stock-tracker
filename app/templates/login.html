@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in &mdash; IT Stock</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128230;</text></svg>">
+</head>
+<body class="signin-page">
+<main class="signin">
+  <h1>IT&nbsp;Stock</h1>
+
+  {% if msg %}<p class="flash ok">{{ msg }}</p>{% endif %}
+  {% if err %}<p class="flash bad">{{ err }}</p>{% endif %}
+
+  {% if needs_setup %}
+    <div class="card">
+      <h2>No accounts yet</h2>
+      <p>Nobody can sign in until the first admin account exists. On the machine
+         running this app, from the project folder:</p>
+      <p class="mono setup-cmd">python -m app.users add yourname --admin</p>
+      <p class="muted">It asks for a password, then you can sign in below.
+         That account can create everyone else from the Users page.</p>
+    </div>
+  {% endif %}
+
+  <form method="post" action="/login" class="card">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Username
+      <input type="text" name="username" autocomplete="username" autofocus required>
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+
+  <p class="muted">Forgotten your password? An admin can set a new one for you
+     from the Users page.</p>
+</main>
+</body>
+</html>
