@@ -6,6 +6,10 @@
 # PowerShell scripts need CRLF on Windows.
 *.ps1 text eol=crlf
 
+# Shell scripts must be LF everywhere, including in a Windows working copy:
+# CRLF makes Linux fail with "bad interpreter: /usr/bin/env bash^M".
+*.sh text eol=lf
+
 # Keep these LF everywhere -- they're read by tools, not by Notepad.
 *.py text eol=lf
 *.html text eol=lf

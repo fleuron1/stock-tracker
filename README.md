@@ -14,6 +14,17 @@ Two kinds of thing are tracked:
 
 Every movement is written to a history log that is never edited or deleted.
 
+## Try it in your browser
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/fleuron1/stock-tracker)
+
+That builds the app in a container and starts it, with an empty database — no
+installing anything locally. It takes about half a minute the first time, then
+the app opens in a preview tab. Each person who does this gets their own
+throwaway copy, so nothing you do in it touches anyone else.
+
+To run it properly on a machine in your own IT room, carry on below.
+
 ## Getting started
 
 From this folder, in PowerShell:
@@ -36,6 +47,9 @@ Options:
 .\run.ps1 -LocalOnly     # only this machine can reach it
 .\run.ps1 -Reload        # restart automatically when the code changes
 ```
+
+On macOS or Linux, use `./run.sh` instead — same behaviour, with `PORT=8080`
+and `LOCAL_ONLY=1` as environment variables.
 
 ### Letting colleagues reach it
 
