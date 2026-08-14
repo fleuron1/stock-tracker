@@ -132,12 +132,18 @@ def tag_exists(conn: sqlite3.Connection, asset_tag: str, exclude_id: int | None 
 # ---------------------------------------------------------- transactions ----
 
 def log(conn: sqlite3.Connection, item_id: int, kind: str, qty_delta: int = 0,
-        person_id: int | None = None, actor: str = "", note: str = "") -> None:
-    """Append a ledger row. Callers commit -- see inventory.py."""
+        person_id: int | None = None, actor: str = "", detail: str = "",
+        note: str = "") -> None:
+    """Append a ledger row. Callers commit -- see inventory.py.
+
+    `detail` is the app's own description of what happened; `note` is what a
+    person typed. Both are kept so a note can never obscure the facts.
+    """
     conn.execute(
-        "INSERT INTO transactions (ts, item_id, kind, qty_delta, person_id, actor, note)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (now(), item_id, kind, qty_delta, person_id, actor.strip(), note.strip()),
+        "INSERT INTO transactions (ts, item_id, kind, qty_delta, person_id, actor,"
+        " detail, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (now(), item_id, kind, qty_delta, person_id, actor.strip(), detail.strip(),
+         note.strip()),
     )
 
 

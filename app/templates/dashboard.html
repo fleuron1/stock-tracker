@@ -77,16 +77,14 @@
   <h2>Recent activity</h2>
   {% if recent %}
   <table>
-    <thead><tr><th>When</th><th>What</th><th>Item</th><th>Qty</th><th>Person</th><th>Done by</th></tr></thead>
+    <thead><tr><th>When</th><th>Item</th><th>What happened</th><th>Done by</th></tr></thead>
     <tbody>
       {% for t in recent %}
       <tr>
         <td class="muted nowrap">{{ t.ts }}</td>
-        <td>{{ tx_labels.get(t.kind, t.kind) }}</td>
         <td><a href="/items/{{ t.item_id }}">{{ t.item_name }}</a></td>
-        <td class="{{ 'neg' if t.qty_delta < 0 else 'pos' if t.qty_delta > 0 else '' }}">
-          {{ '%+d'|format(t.qty_delta) if t.qty_delta else '' }}</td>
-        <td>{{ t.person_name or '' }}</td>
+        <td class="detail">{{ t.detail }}{% if t.note %}
+            <span class="typed">&ldquo;{{ t.note }}&rdquo;</span>{% endif %}</td>
         <td>{{ t.actor }}</td>
       </tr>
       {% endfor %}

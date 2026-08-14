@@ -95,6 +95,25 @@ Task Scheduler → Create Task:
   inactive when they leave; their history stays.
 - **History** is the full ledger, filterable, and exportable as it's filtered.
 
+Every entry writes its own description, so the log is readable months later
+even when nobody typed anything:
+
+| What | What happened |
+|---|---|
+| Checked out | `Off the shelf to Sam Okafor (Finance)` |
+| Checked in | `Back from Sam Okafor (Finance), sent straight to repair` |
+| Status change | `Repaired and back on the shelf, ready to hand out` |
+| Retired | `Retired from repair, no longer in service` |
+| Stock out | `26 out — 8 left, was 34, at or below the reorder level of 10` |
+| Stock in | `50 in — 58 now in stock, was 8, back above the reorder level of 10` |
+| Adjusted | `Stocktake: counted 55, was 58 — 3 fewer than recorded` |
+| Edited | `Serial: (blank) → SN-77120; Location: Shelf A → Shelf B` |
+
+Anything a person types in a "note" box is kept *alongside* that description
+and shown in quotes, never instead of it — so a note can add the reason
+("screen flickering") without hiding the facts. An edit that changes nothing
+writes no entry at all.
+
 ### Low stock
 
 Give a consumable a "tell me when it drops to" level and it turns up on the

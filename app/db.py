@@ -12,7 +12,13 @@ from pathlib import Path
 
 from . import config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Applied in order to databases created by an older version. A brand-new
+# database gets the current schema straight from SCHEMA_SQL and skips these.
+MIGRATIONS: dict[int, list[str]] = {
+    2: ["ALTER TABLE transactions ADD COLUMN detail TEXT NOT NULL DEFAULT ''"],
+}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS people (
@@ -57,6 +63,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     qty_delta  INTEGER NOT NULL DEFAULT 0,
     person_id  INTEGER REFERENCES people(id) ON DELETE SET NULL,
     actor      TEXT    NOT NULL DEFAULT '',
+    -- `detail` is written by the app and says what actually happened;
+    -- `note` is whatever the person chose to type, and is often empty.
+    -- Keeping them apart means a typed note never hides the facts.
+    detail     TEXT    NOT NULL DEFAULT '',
     note       TEXT    NOT NULL DEFAULT ''
 );
 
@@ -76,6 +86,7 @@ TX_LABELS = {
     "adjust": "Adjusted",
     "created": "Created",
     "updated": "Edited",
+    "status": "Status change",
     "retired": "Retired",
 }
 
@@ -114,13 +125,24 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create the schema if it isn't there, and stamp the version.
+    """Create the schema if it isn't there, upgrade it if it's old.
 
-    Future column additions go in a `if version < N` block below, so there is
-    an obvious home for them.
+    Safe to run on every start: a new database is built from SCHEMA_SQL and
+    stamped as current, and an existing one only runs the migrations it has
+    not seen yet.
     """
+    existing = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+    ).fetchone()[0]
+
     conn.executescript(SCHEMA_SQL)
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version < SCHEMA_VERSION:
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    if existing:
+        # An older database: bring it up to date one version at a time.
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        for step in range(version + 1, SCHEMA_VERSION + 1):
+            for statement in MIGRATIONS.get(step, []):
+                conn.execute(statement)
+
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()

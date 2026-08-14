@@ -166,6 +166,15 @@ table.editable input[type=email] {
   color: var(--ink);
 }
 
+/* The app's own account of what happened, with anything a person typed
+   quoted after it so the two are never confused. */
+.detail { font-size: 13px; }
+.detail .typed {
+  display: inline-block;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; }
 .muted { color: var(--muted); }
 .nowrap { white-space: nowrap; }

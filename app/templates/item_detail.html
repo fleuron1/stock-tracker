@@ -133,7 +133,7 @@
   <h2>History</h2>
   {% if history %}
   <table>
-    <thead><tr><th>When</th><th>What</th><th>Qty</th><th>Person</th><th>Done by</th><th>Note</th></tr></thead>
+    <thead><tr><th>When</th><th>What</th><th>Qty</th><th>Done by</th><th>What happened</th></tr></thead>
     <tbody>
       {% for t in history %}
       <tr>
@@ -141,9 +141,9 @@
         <td>{{ tx_labels.get(t.kind, t.kind) }}</td>
         <td class="{{ 'neg' if t.qty_delta < 0 else 'pos' if t.qty_delta > 0 else '' }}">
           {{ '%+d'|format(t.qty_delta) if t.qty_delta else '' }}</td>
-        <td>{{ t.person_name or '' }}</td>
         <td>{{ t.actor }}</td>
-        <td class="muted">{{ t.note }}</td>
+        <td class="detail">{{ t.detail }}{% if t.note %}
+            <span class="typed">&ldquo;{{ t.note }}&rdquo;</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -12,7 +12,7 @@ import io
 import sqlite3
 from typing import Any
 
-from . import models, notifications
+from . import inventory, models, notifications
 from .db import now
 
 ITEM_COLUMNS = [
@@ -22,7 +22,7 @@ ITEM_COLUMNS = [
 
 HISTORY_COLUMNS = [
     "timestamp", "action", "item", "asset_tag", "item_kind", "qty_delta",
-    "person", "done_by", "note",
+    "person", "done_by", "what_happened", "note",
 ]
 
 # Header spellings people actually use in spreadsheets, mapped to our names.
@@ -104,6 +104,7 @@ def export_history(conn: sqlite3.Connection, rows: list[sqlite3.Row] | None = No
             tx["qty_delta"],
             tx["person_name"] or "",
             tx["actor"],
+            tx["detail"],
             tx["note"],
         ])
     return buf.getvalue()
@@ -267,8 +268,13 @@ def import_items(conn: sqlite3.Connection, file_text: str,
                  entry["reorder_level"], stamp, stamp),
             )
             item_id = int(cur.lastrowid)
+            if entry["kind"] == "asset":
+                opening = "as an asset, on the shelf"
+            else:
+                opening = f"as a consumable with {entry['quantity']} in stock"
             models.log(conn, item_id, "created", qty_delta=entry["quantity"] or 0,
-                       actor=actor, note=f"Imported from CSV (line {entry['line']})")
+                       actor=actor,
+                       detail=f"Imported from CSV line {entry['line']}, added {opening}")
             summary["created"] += 1
             if entry["kind"] == "consumable":
                 touched_consumables.append(item_id)
@@ -291,6 +297,14 @@ def import_items(conn: sqlite3.Connection, file_text: str,
                 summary["unchanged"] += 1
                 continue
 
+            from_csv = f"From CSV line {entry['line']}"
+            # Describe the edit the same way a hand edit would be described.
+            edited = [
+                inventory.describe_change(field, existing[field], entry[field])
+                for field in ("name", "category", "serial_number", "location", "notes")
+                if (existing[field] or "") != (entry[field] or "")
+            ]
+
             if entry["kind"] == "asset":
                 # Status and holder are left alone: an import must not silently
                 # hand someone's laptop back to the shelf.
@@ -301,8 +315,12 @@ def import_items(conn: sqlite3.Connection, file_text: str,
                      entry["location"], entry["notes"], stamp, item_id),
                 )
                 models.log(conn, item_id, "updated", actor=actor,
-                           note=f"Updated from CSV (line {entry['line']})")
+                           detail=f"{from_csv}: {'; '.join(edited)}")
             else:
+                if (existing["reorder_level"] or 0) != (entry["reorder_level"] or 0):
+                    edited.append(inventory.describe_change(
+                        "reorder_level", existing["reorder_level"],
+                        entry["reorder_level"]))
                 conn.execute(
                     "UPDATE items SET name = ?, category = ?, serial_number = ?,"
                     " location = ?, notes = ?, quantity = ?, reorder_level = ?,"
@@ -314,12 +332,17 @@ def import_items(conn: sqlite3.Connection, file_text: str,
                 if delta:
                     # A count that differs from the file is a stocktake, so it
                     # lands in the ledger as one.
+                    gap = (f"{abs(delta)} fewer than recorded" if delta < 0
+                           else f"{abs(delta)} more than recorded")
+                    detail = (f"{from_csv}: counted {entry['quantity']},"
+                              f" was {existing['quantity']} — {gap}")
+                    if edited:
+                        detail += f". {'; '.join(edited)}"
                     models.log(conn, item_id, "adjust", qty_delta=delta, actor=actor,
-                               note=f"Count set to {entry['quantity']} from CSV"
-                                    f" (line {entry['line']})")
+                               detail=detail)
                 else:
                     models.log(conn, item_id, "updated", actor=actor,
-                               note=f"Updated from CSV (line {entry['line']})")
+                               detail=f"{from_csv}: {'; '.join(edited)}")
                 touched_consumables.append(item_id)
             summary["updated"] += 1
 
