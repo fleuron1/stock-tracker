@@ -1,0 +1,19 @@
+# Normalise line endings so the repo stays clean across Windows, macOS and
+# Linux: text is stored with LF in git and checked out however the platform
+# prefers.
+* text=auto
+
+# PowerShell scripts need CRLF on Windows.
+*.ps1 text eol=crlf
+
+# Keep these LF everywhere -- they're read by tools, not by Notepad.
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+
+# Never touch binaries.
+*.db binary
+*.png binary
+*.jpg binary
+*.ico binary
