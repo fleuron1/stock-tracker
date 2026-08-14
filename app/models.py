@@ -7,9 +7,10 @@ that all lives in inventory.py so every movement is guaranteed a ledger row.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from typing import Any, Iterable
 
-from .db import now
+from .db import now, today
 
 # Selecting items nearly always wants the assignee's name alongside, so this
 # join is factored out rather than repeated in five places.
@@ -192,6 +193,88 @@ def list_transactions(conn: sqlite3.Connection, item_id: int | None = None,
     if limit:
         sql += f" LIMIT {int(limit)}"
     return conn.execute(sql, params).fetchall()
+
+
+# ---------------------------------------------------------------- loans ----
+
+# `outstanding` is what's still to come back, so a part-returned loan shows
+# what remains rather than what originally went out.
+LOAN_SELECT = """
+SELECT l.*, (l.qty - l.returned_qty) AS outstanding,
+       i.name AS item_name, i.kind AS item_kind, i.asset_tag, i.location,
+       p.name AS person_name, p.email AS person_email, p.department
+FROM loans l
+JOIN items i ON i.id = l.item_id
+LEFT JOIN people p ON p.id = l.person_id
+"""
+
+
+def get_loan(conn: sqlite3.Connection, loan_id: int) -> sqlite3.Row | None:
+    return conn.execute(LOAN_SELECT + " WHERE l.id = ?", (loan_id,)).fetchone()
+
+
+def open_loan_for_item(conn: sqlite3.Connection, item_id: int) -> sqlite3.Row | None:
+    """The open loan on an asset. Assets can only be in one place at a time."""
+    return conn.execute(
+        LOAN_SELECT + " WHERE l.item_id = ? AND l.returned_at IS NULL"
+        " ORDER BY l.out_at LIMIT 1", (item_id,)
+    ).fetchone()
+
+
+def list_loans(conn: sqlite3.Connection, state: str = "open",
+               person_id: int | None = None,
+               item_id: int | None = None) -> list[sqlite3.Row]:
+    """Loans, newest due first.
+
+    `state` is one of: open (still out), overdue (out and past its date),
+    due_soon (out and due within a week), returned, or all.
+    """
+    where: list[str] = []
+    params: list[Any] = []
+
+    if state == "open":
+        where.append("l.returned_at IS NULL")
+    elif state == "overdue":
+        where.append("l.returned_at IS NULL AND l.due_on IS NOT NULL AND l.due_on < ?")
+        params.append(today())
+    elif state == "due_soon":
+        where.append("l.returned_at IS NULL AND l.due_on IS NOT NULL"
+                     " AND l.due_on >= ? AND l.due_on <= date(?, '+7 day')")
+        params.extend([today(), today()])
+    elif state == "returned":
+        where.append("l.returned_at IS NOT NULL")
+
+    if person_id:
+        where.append("l.person_id = ?")
+        params.append(person_id)
+    if item_id:
+        where.append("l.item_id = ?")
+        params.append(item_id)
+
+    sql = LOAN_SELECT
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    # Open-ended loans sort last: they can never be late, so they shouldn't
+    # push dated loans down the page.
+    sql += (" ORDER BY l.returned_at IS NOT NULL, l.due_on IS NULL, l.due_on,"
+            " l.out_at DESC")
+    return conn.execute(sql, params).fetchall()
+
+
+def days_overdue(loan: sqlite3.Row) -> int:
+    """How many days past its date a loan is. 0 if not overdue or open-ended."""
+    if loan["due_on"] is None or loan["returned_at"] is not None:
+        return 0
+    gap = (date.fromisoformat(today()) - date.fromisoformat(loan["due_on"])).days
+    return max(0, gap)
+
+
+def loan_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    return {
+        "open": len(list_loans(conn, "open")),
+        "overdue": len(list_loans(conn, "overdue")),
+        "due_soon": len(list_loans(conn, "due_soon")),
+    }
 
 
 # ------------------------------------------------------------ dashboard ----

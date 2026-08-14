@@ -88,6 +88,8 @@ Task Scheduler → Create Task:
   USB barcode scanner works straight away — scan a tag and you land on that
   item's page. From any other page, press `/` to jump to the search box.
 - **Inventory** lists everything, with filters.
+- **On loan** is everything that's gone out and is expected back, with anything
+  overdue at the top.
 - **An item's page** is where you move it: check out / check in for an asset,
   put in / take out / stocktake for a consumable, each with a "done by" box.
   Your name is remembered in a cookie so you're not retyping it all day.
@@ -100,8 +102,10 @@ even when nobody typed anything:
 
 | What | What happened |
 |---|---|
-| Checked out | `Off the shelf to Sam Okafor (Finance)` |
-| Checked in | `Back from Sam Okafor (Finance), sent straight to repair` |
+| Checked out | `Off the shelf to Sam Okafor (Finance), due back 2026-08-28` |
+| Checked in | `Back from Sam Okafor (Finance), 3 days late, onto the shelf` |
+| Lent | `8 lent to Sam Okafor (Finance), due back 2026-08-20 — 32 left, was 40` |
+| Returned | `4 of 10 returned by Jo Reyes (Support) — 6 still out, 21 now in stock` |
 | Status change | `Repaired and back on the shelf, ready to hand out` |
 | Retired | `Retired from repair, no longer in service` |
 | Stock out | `26 out — 8 left, was 34, at or below the reorder level of 10` |
@@ -113,6 +117,54 @@ Anything a person types in a "note" box is kept *alongside* that description
 and shown in quotes, never instead of it — so a note can add the reason
 ("screen flickering") without hiding the facts. An edit that changes nothing
 writes no entry at all.
+
+### Lending things out
+
+Anything can go out on loan, with or without a date:
+
+- **An asset** goes out with **Check out**, and a "due back" box you can leave
+  empty.
+- **A consumable** has two separate actions. **Take out** is for units being
+  used up and never coming back — toner, cable ties. **Lend** is for units you
+  expect back, and asks who has them and when they're due.
+
+The count drops either way, but lent units are tracked until they return, and
+consumables can come back in parts: lend ten cables, take six back today and
+the rest next week.
+
+The **On loan** page shows everything that's out, worst-overdue first, with
+open-ended loans last since they can never be late. From there you can take
+something back or change a due date — extending a date is the normal answer to
+"I still need this", and it's recorded like any other decision.
+
+**Only loans with a date can be overdue.** An open-ended loan — a laptop
+permanently assigned to someone — sits on the list and is never chased.
+
+### Chasing overdue items
+
+Overdue items are the one thing nobody is sitting there looking at, so the
+reminder runs on a schedule rather than when someone opens the app:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.overdue --dry-run   # see who would be emailed
+.\.venv\Scripts\python.exe -m app.overdue             # actually send
+```
+
+Each borrower gets **one** email listing everything of theirs that's late, not
+one per item. It goes to the address on their People record; anyone without an
+address is reported in the output so you know to chase them in person rather
+than assuming they were told.
+
+Reminders need the email settings below switched on. Without them the On loan
+page still works — you just chase people yourself.
+
+To run it each morning, Task Scheduler → Create Task:
+
+- **Triggers:** Daily, 08:30.
+- **Actions:** Start a program —
+  Program: `C:\path\to\stock\.venv\Scripts\python.exe`
+  Arguments: `-m app.overdue`
+  Start in: `C:\path\to\stock`
 
 ### Low stock
 
@@ -181,13 +233,18 @@ app/
   main.py           routes
   inventory.py      the stock rules; the only module that changes stock
   models.py         database queries
-  db.py             connection and schema
+  db.py             connection, schema and migrations
   csv_io.py         import / export
   notifications.py  low-stock email
+  overdue.py        overdue reminders; run on a schedule
   templates/        pages
   static/style.css  the one stylesheet
 tests/              pytest
 ```
+
+The database upgrades itself on start. `db.py` holds a schema version and a
+list of migrations; an existing `stock.db` only runs the steps it hasn't seen,
+so you can pull a new version and restart without losing anything.
 
 The rule worth keeping if you extend this: everything that moves stock goes
 through `inventory.py`, which writes the item change and its history row in

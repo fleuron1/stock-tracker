@@ -9,6 +9,7 @@ out of step with the shelf. Routes call these functions; routes never write to
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 
 from . import models, notifications
 from .db import STATUS_LABELS, now
@@ -43,6 +44,31 @@ def _who(person: sqlite3.Row | None) -> str:
     if person["department"]:
         return f"{person['name']} ({person['department']})"
     return person["name"]
+
+
+def _due_phrase(due_on: str | None) -> str:
+    return f", due back {due_on}" if due_on else ", no date agreed"
+
+
+def _clean_due(due_on: str) -> str | None:
+    """Accept a date, or nothing at all -- loans are allowed to be open-ended."""
+    due_on = (due_on or "").strip()
+    if not due_on:
+        return None
+    try:
+        return date.fromisoformat(due_on).isoformat()
+    except ValueError:
+        raise StockError(f"'{due_on}' isn't a date I understand. Use YYYY-MM-DD.")
+
+
+def _lateness(loan: sqlite3.Row | None) -> str:
+    """How late a return was, for the ledger. Silent when it was on time."""
+    if loan is None:
+        return ""
+    late = models.days_overdue(loan)
+    if not late:
+        return ""
+    return f", {late} day{'' if late == 1 else 's'} late"
 
 
 def _level_phrase(old_qty: int, new_qty: int, reorder: int | None) -> str:
@@ -249,9 +275,11 @@ def retire_item(conn: sqlite3.Connection, item_id: int, actor: str = "",
 # ------------------------------------------------------ assets: in / out ----
 
 def check_out(conn: sqlite3.Connection, item_id: int, person_id: int, actor: str = "",
-              note: str = "") -> None:
+              note: str = "", due_on: str = "") -> None:
+    """Hand an asset to someone, optionally with a date it's due back."""
     item = _require_item(conn, item_id)
     _require_kind(item, "asset")
+    due = _clean_due(due_on)
 
     if item["status"] == "assigned":
         raise StockError(
@@ -268,8 +296,13 @@ def check_out(conn: sqlite3.Connection, item_id: int, person_id: int, actor: str
     conn.execute(
         "UPDATE items SET status = 'assigned', assigned_to = ?, updated_at = ?"
         " WHERE id = ?", (person_id, now(), item_id))
+    conn.execute(
+        "INSERT INTO loans (item_id, person_id, qty, out_at, due_on, note)"
+        " VALUES (?, ?, 1, ?, ?, ?)",
+        (item_id, person_id, now(), due, note.strip()))
     models.log(conn, item_id, "check_out", qty_delta=-1, person_id=person_id,
-               actor=actor, detail=f"Off the shelf to {_who(person)}", note=note)
+               actor=actor,
+               detail=f"Off the shelf to {_who(person)}{_due_phrase(due)}", note=note)
     conn.commit()
 
 
@@ -282,10 +315,15 @@ def check_in(conn: sqlite3.Connection, item_id: int, actor: str = "", note: str 
 
     # Remember who had it, so the ledger row says who brought it back.
     previous_holder = item["assigned_to"]
+    loan = models.open_loan_for_item(conn, item_id)
     new_status = "repair" if to_repair else "in_stock"
     conn.execute(
         "UPDATE items SET status = ?, assigned_to = NULL, updated_at = ? WHERE id = ?",
         (new_status, now(), item_id))
+    if loan is not None:
+        conn.execute(
+            "UPDATE loans SET returned_qty = qty, returned_at = ? WHERE id = ?",
+            (now(), loan["id"]))
 
     if previous_holder:
         came_from = f"Back from {_who(models.get_person(conn, previous_holder))}"
@@ -294,7 +332,8 @@ def check_in(conn: sqlite3.Connection, item_id: int, actor: str = "", note: str 
     went_to = "sent straight to repair" if to_repair else "onto the shelf"
 
     models.log(conn, item_id, "check_in", qty_delta=1, person_id=previous_holder,
-               actor=actor, detail=f"{came_from}, {went_to}", note=note)
+               actor=actor, detail=f"{came_from}{_lateness(loan)}, {went_to}",
+               note=note)
     conn.commit()
 
 
@@ -375,6 +414,126 @@ def stock_out(conn: sqlite3.Connection, item_id: int, qty: int,
                actor=actor, detail=detail, note=note)
     conn.commit()
     notifications.maybe_alert_low_stock(conn, item_id)
+
+
+def lend(conn: sqlite3.Connection, item_id: int, qty: int, person_id: int,
+         actor: str = "", note: str = "", due_on: str = "") -> int:
+    """Send consumable units out that are expected back.
+
+    Distinct from stock_out, which is for things genuinely used up. The count
+    drops either way, but a loan is tracked until it returns.
+    """
+    item = _require_item(conn, item_id)
+    _require_kind(item, "consumable")
+    qty = int(qty)
+    if qty <= 0:
+        raise StockError("Enter how many are going out (more than zero).")
+    if qty > item["quantity"]:
+        raise StockError(
+            f"Only {item['quantity']} of '{item['name']}' left — can't lend {qty}.")
+
+    person = models.get_person(conn, person_id)
+    if person is None:
+        raise StockError("Pick who is borrowing it.")
+    due = _clean_due(due_on)
+
+    was, new_qty = item["quantity"], item["quantity"] - qty
+    conn.execute(
+        "UPDATE items SET quantity = quantity - ?, updated_at = ? WHERE id = ?",
+        (qty, now(), item_id))
+    cur = conn.execute(
+        "INSERT INTO loans (item_id, person_id, qty, out_at, due_on, note)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (item_id, person_id, qty, now(), due, note.strip()))
+
+    detail = (f"{qty} lent to {_who(person)}{_due_phrase(due)} — {new_qty} left,"
+              f" was {was}{_level_phrase(was, new_qty, item['reorder_level'])}")
+    models.log(conn, item_id, "lent", qty_delta=-qty, person_id=person_id,
+               actor=actor, detail=detail, note=note)
+    conn.commit()
+    notifications.maybe_alert_low_stock(conn, item_id)
+    return int(cur.lastrowid)
+
+
+def return_loan(conn: sqlite3.Connection, loan_id: int, qty: int | None = None,
+                actor: str = "", note: str = "") -> None:
+    """Take back some or all of a loan.
+
+    Consumable loans can come back in parts -- six of the ten cables today,
+    the rest next week -- so the quantity returned is tracked separately.
+    """
+    loan = models.get_loan(conn, loan_id)
+    if loan is None:
+        raise StockError("That loan no longer exists.")
+    if loan["returned_at"] is not None:
+        raise StockError("That loan is already fully back.")
+
+    outstanding = loan["outstanding"]
+    qty = outstanding if qty is None else int(qty)
+    if qty <= 0:
+        raise StockError("Enter how many are coming back (more than zero).")
+    if qty > outstanding:
+        raise StockError(
+            f"Only {outstanding} still out on that loan — can't return {qty}.")
+
+    if loan["item_kind"] == "asset":
+        # An asset loan is one unit, and closing it is a check-in, so that
+        # the item's status and holder are updated in one place.
+        check_in(conn, loan["item_id"], actor=actor, note=note)
+        return
+
+    item = _require_item(conn, loan["item_id"])
+    was, new_qty = item["quantity"], item["quantity"] + qty
+    returned_total = loan["returned_qty"] + qty
+    fully_back = returned_total >= loan["qty"]
+
+    conn.execute(
+        "UPDATE items SET quantity = quantity + ?, updated_at = ? WHERE id = ?",
+        (qty, now(), loan["item_id"]))
+    conn.execute(
+        "UPDATE loans SET returned_qty = ?, returned_at = ? WHERE id = ?",
+        (returned_total, now() if fully_back else None, loan_id))
+
+    who = _who(models.get_person(conn, loan["person_id"])) if loan["person_id"] else "someone"
+    if fully_back:
+        detail = f"{qty} returned by {who}{_lateness(loan)} — {new_qty} now in stock"
+    else:
+        still_out = loan["qty"] - returned_total
+        detail = (f"{qty} of {loan['qty']} returned by {who}{_lateness(loan)}"
+                  f" — {still_out} still out, {new_qty} now in stock")
+
+    models.log(conn, loan["item_id"], "returned", qty_delta=qty,
+               person_id=loan["person_id"], actor=actor, detail=detail, note=note)
+    conn.commit()
+
+
+def set_loan_due(conn: sqlite3.Connection, loan_id: int, due_on: str,
+                 actor: str = "") -> None:
+    """Change the date on a loan that's already out, or clear it entirely.
+
+    Extending a date is the normal answer to "I still need this", and it
+    belongs in the ledger like any other decision about the item.
+    """
+    loan = models.get_loan(conn, loan_id)
+    if loan is None:
+        raise StockError("That loan no longer exists.")
+    if loan["returned_at"] is not None:
+        raise StockError("That loan is already back.")
+
+    due = _clean_due(due_on)
+    if due == loan["due_on"]:
+        return
+
+    conn.execute("UPDATE loans SET due_on = ?, last_remind_at = NULL WHERE id = ?",
+                 (due, loan_id))
+
+    was = loan["due_on"] or "open-ended"
+    now_due = due or "open-ended"
+    models.log(conn, loan["item_id"], "updated", person_id=loan["person_id"],
+               actor=actor,
+               detail=f"Loan to {loan['person_name'] or 'someone'}: due date"
+                      f" {was} → {now_due}")
+    conn.commit()
 
 
 def set_quantity(conn: sqlite3.Connection, item_id: int, new_qty: int, actor: str = "",

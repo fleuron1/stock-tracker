@@ -25,6 +25,9 @@
   <a class="stat {% if low_stock %}warn{% endif %}" href="/items?kind=consumable">
     <b>{{ low_stock|length }}</b><span>low on stock</span>
   </a>
+  <a class="stat {% if loan_counts.overdue %}bad{% endif %}" href="/loans?state=overdue">
+    <b>{{ loan_counts.overdue }}</b><span>overdue</span>
+  </a>
 </div>
 
 <div class="actions-row">
@@ -52,24 +55,50 @@
 </section>
 {% endif %}
 
+{% if overdue %}
 <section>
-  <h2>Out right now ({{ out_now|length }})</h2>
-  {% if out_now %}
+  <h2>Overdue</h2>
   <table>
-    <thead><tr><th>Item</th><th>Tag</th><th>With</th><th>Since</th></tr></thead>
+    <thead><tr><th>Item</th><th>With</th><th>Was due</th><th>Late by</th></tr></thead>
     <tbody>
-      {% for i in out_now %}
-      <tr>
-        <td><a href="/items/{{ i.id }}">{{ i.name }}</a></td>
-        <td class="mono">{{ i.asset_tag or '' }}</td>
-        <td>{{ i.assigned_to_name }}</td>
-        <td class="muted">{{ i.updated_at }}</td>
+      {% for l in overdue %}
+      <tr class="low">
+        <td><a href="/items/{{ l.item_id }}">{{ l.item_name }}</a>
+            {% if l.item_kind == 'consumable' %}
+              <span class="muted">{{ l.outstanding }} out</span>{% endif %}</td>
+        <td>{{ l.person_name or 'unknown' }}</td>
+        <td>{{ l.due_on }}</td>
+        <td><b>{{ days_overdue(l) }}</b> day{{ '' if days_overdue(l) == 1 else 's' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <p><a href="/loans?state=overdue">Chase these &rarr;</a></p>
+</section>
+{% endif %}
+
+<section>
+  <h2>Out right now ({{ on_loan|length }})</h2>
+  {% if on_loan %}
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th><th>With</th><th>Since</th><th>Due</th></tr></thead>
+    <tbody>
+      {% for l in on_loan %}
+      <tr>
+        <td><a href="/items/{{ l.item_id }}">{{ l.item_name }}</a>
+            {% if l.asset_tag %}<span class="muted mono">{{ l.asset_tag }}</span>{% endif %}</td>
+        <td>{{ l.outstanding }}</td>
+        <td>{{ l.person_name or 'unknown' }}</td>
+        <td class="muted nowrap">{{ l.out_at[:10] }}</td>
+        <td class="nowrap">{{ l.due_on or '' }}
+            {% if not l.due_on %}<span class="muted">open-ended</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/loans">Everything on loan &rarr;</a></p>
   {% else %}
-  <p class="empty">Nothing is checked out.</p>
+  <p class="empty">Nothing is out.</p>
   {% endif %}
 </section>
 

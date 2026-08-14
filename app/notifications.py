@@ -22,12 +22,17 @@ from .db import now
 log = logging.getLogger("stock.notifications")
 
 
-def _send(subject: str, body: str) -> None:
-    """Send one plain-text mail. Raises on failure -- callers decide what that means."""
+def _send(subject: str, body: str, to: list[str] | None = None) -> None:
+    """Send one plain-text mail. Raises on failure -- callers decide what that means.
+
+    `to` defaults to the manager address in .env; overdue reminders pass the
+    borrower's own address instead.
+    """
+    recipients = to if to else config.ALERT_TO
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = config.ALERT_FROM
-    msg["To"] = ", ".join(config.ALERT_TO)
+    msg["To"] = ", ".join(recipients)
     msg.set_content(body)
 
     with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=20) as smtp:
@@ -38,14 +43,24 @@ def _send(subject: str, body: str) -> None:
         smtp.send_message(msg)
 
 
-def _within_cooldown(last_alert_at: str | None) -> bool:
-    if not last_alert_at:
+def send_email(subject: str, body: str, to: list[str]) -> None:
+    """Send to specific people -- used for overdue reminders to a borrower."""
+    _send(subject, body, to=to)
+
+
+def within_cooldown(stamp: str | None, hours: int) -> bool:
+    """True if `stamp` is recent enough that we shouldn't send again yet."""
+    if not stamp:
         return False
     try:
-        last = datetime.fromisoformat(last_alert_at)
+        last = datetime.fromisoformat(stamp)
     except ValueError:
         return False
-    return datetime.now() - last < timedelta(hours=config.ALERT_COOLDOWN_HOURS)
+    return datetime.now() - last < timedelta(hours=hours)
+
+
+def _within_cooldown(last_alert_at: str | None) -> bool:
+    return within_cooldown(last_alert_at, config.ALERT_COOLDOWN_HOURS)
 
 
 def maybe_alert_low_stock(conn: sqlite3.Connection, item_id: int) -> bool:

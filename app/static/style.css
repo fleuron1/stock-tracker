@@ -274,6 +274,30 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .actions form:last-child { padding-bottom: 0; border-bottom: none; }
 .inline-form { padding-top: 14px; }
 
+/* Loan state switcher. */
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.tabs a {
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 14px;
+}
+.tabs a:hover { border-color: var(--accent); text-decoration: none; }
+.tabs a.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tabs a.bad:not(.on) { color: var(--bad-ink); border-color: var(--bad-ink); }
+
+/* Small forms living inside a table cell -- returning a loan, changing a date. */
+.row-form { display: flex; gap: 5px; align-items: center; margin-bottom: 5px; }
+.row-form input { width: auto; margin-top: 0; padding: 5px 7px; font-size: 13px; }
+.row-form input[type=number] { width: 62px; }
+.row-form input[type=text] { width: 100px; }
+.row-form button { padding: 5px 10px; font-size: 13px; }
+
+.stat.bad { background: var(--bad-bg); border-color: var(--bad-ink); }
+.stat.bad b { color: var(--bad-ink); }
+
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 dt { color: var(--muted); font-size: 13px; }
 dd { margin: 0; }

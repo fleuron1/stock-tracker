@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}On loan{% endblock %}
+
+{% block content %}
+{{ m.people_datalist(people) }}
+
+<div class="page-head">
+  <div>
+    <h1>On loan</h1>
+    <p class="muted">Everything that has gone out and is expected back.
+       Open-ended loans have no date and are never chased.</p>
+  </div>
+</div>
+
+<div class="tabs">
+  <a href="/loans?state=overdue" class="{% if state == 'overdue' %}on{% endif %}
+     {% if counts.overdue %}bad{% endif %}">Overdue ({{ counts.overdue }})</a>
+  <a href="/loans?state=due_soon" class="{% if state == 'due_soon' %}on{% endif %}">
+     Due this week ({{ counts.due_soon }})</a>
+  <a href="/loans?state=open" class="{% if state == 'open' %}on{% endif %}">
+     All out ({{ counts.open }})</a>
+  <a href="/loans?state=returned" class="{% if state == 'returned' %}on{% endif %}">
+     Returned</a>
+</div>
+
+{% if loans %}
+<table>
+  <thead>
+    <tr><th>Item</th><th>Qty</th><th>With</th><th>Out since</th><th>Due</th>
+        <th>{% if state != 'returned' %}Bring it back{% else %}Returned{% endif %}</th></tr>
+  </thead>
+  <tbody>
+    {% for l in loans %}
+    {% set late = days_overdue(l) %}
+    <tr class="{% if late %}low{% endif %}">
+      <td>
+        <a href="/items/{{ l.item_id }}">{{ l.item_name }}</a>
+        {% if l.asset_tag %}<span class="muted mono">{{ l.asset_tag }}</span>{% endif %}
+      </td>
+      <td>{% if l.item_kind == 'consumable' %}{{ l.outstanding }}{% if l.returned_qty %}
+            <span class="muted">of {{ l.qty }}</span>{% endif %}{% else %}1{% endif %}</td>
+      <td>{{ l.person_name or 'unknown' }}
+          {% if l.department %}<span class="muted">{{ l.department }}</span>{% endif %}
+          {% if not l.person_email and not l.returned_at %}
+            <span class="muted">no email — chase in person</span>{% endif %}</td>
+      <td class="muted nowrap">{{ l.out_at[:10] }}</td>
+      <td class="nowrap">
+        {% if l.due_on %}
+          {{ l.due_on }}
+          {% if late %}<span class="pill s-low">{{ late }} day{{ '' if late == 1 else 's' }} late</span>{% endif %}
+        {% else %}
+          <span class="muted">open-ended</span>
+        {% endif %}
+      </td>
+      <td class="nowrap">
+        {% if l.returned_at %}
+          <span class="muted">{{ l.returned_at[:10] }}</span>
+        {% else %}
+          <form method="post" action="/loans/{{ l.id }}/return" class="row-form">
+            <input type="hidden" name="back_to" value="/loans?state={{ state }}">
+            {% if l.item_kind == 'consumable' and l.outstanding > 1 %}
+              <input type="number" name="qty" min="1" max="{{ l.outstanding }}"
+                     value="{{ l.outstanding }}" aria-label="How many back">
+            {% endif %}
+            <input type="text" name="actor" value="{{ actor }}" list="people-names"
+                   placeholder="your name" aria-label="Done by" required>
+            <button type="submit">Returned</button>
+          </form>
+          <form method="post" action="/loans/{{ l.id }}/due" class="row-form">
+            <input type="hidden" name="back_to" value="/loans?state={{ state }}">
+            <input type="date" name="due_on" value="{{ l.due_on or '' }}"
+                   aria-label="New due date">
+            <input type="hidden" name="actor" value="{{ actor }}">
+            <button type="submit">Change date</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">
+  {% if state == 'overdue' %}Nothing is overdue. {% if counts.open %}
+    {{ counts.open }} item{{ '' if counts.open == 1 else 's' }} still out, all
+    within their date or open-ended.{% endif %}
+  {% elif state == 'due_soon' %}Nothing is due back in the next week.
+  {% elif state == 'returned' %}Nothing has been returned yet.
+  {% else %}Nothing is out on loan.{% endif %}
+</p>
+{% endif %}
+
+{% if state == 'overdue' and counts.overdue %}
+<p class="muted">Borrowers are emailed about their own overdue items when
+   <span class="mono">python -m app.overdue</span> runs — see the README for
+   setting that to run each morning. Anyone without an email address on the
+   People page has to be chased in person.</p>
+{% endif %}
+{% endblock %}

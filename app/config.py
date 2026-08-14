@@ -55,6 +55,9 @@ ALERTS_ENABLED = _bool("ALERTS_ENABLED", False)
 ALERT_TO = [addr.strip() for addr in _str("ALERT_TO", "").split(",") if addr.strip()]
 ALERT_FROM = _str("ALERT_FROM", "")
 ALERT_COOLDOWN_HOURS = _int("ALERT_COOLDOWN_HOURS", 24)
+# Overdue reminders go to the borrower. This stops one person being emailed
+# repeatedly about the same loan if the reminder task runs more than daily.
+REMINDER_COOLDOWN_HOURS = _int("REMINDER_COOLDOWN_HOURS", 24)
 
 SMTP_HOST = _str("SMTP_HOST", "")
 SMTP_PORT = _int("SMTP_PORT", 587)

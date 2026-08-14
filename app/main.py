@@ -59,7 +59,13 @@ def get_conn() -> Iterator[sqlite3.Connection]:
 def redirect(path: str, msg: str = "", err: str = "", actor: str = "") -> RedirectResponse:
     """Post/redirect/get, carrying a one-line result in the query string."""
     params = {k: v for k, v in (("msg", msg), ("err", err)) if v}
-    url = f"{path}?{urlencode(params)}" if params else path
+    if params:
+        # The path may already carry a query -- returning a loan sends you back
+        # to /loans?state=overdue -- so join with & rather than a second ?,
+        # which would fold the message into the state value.
+        url = f"{path}{'&' if '?' in path else '?'}{urlencode(params)}"
+    else:
+        url = path
     response = RedirectResponse(url, status_code=303)
     if actor:
         response.set_cookie(ACTOR_COOKIE, actor, max_age=COOKIE_MAX_AGE, samesite="lax")
@@ -87,7 +93,10 @@ def dashboard(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
         stats=models.stats(conn),
         low_stock=inventory.low_stock_items(conn),
         recent=models.list_transactions(conn, limit=20),
-        out_now=models.list_items(conn, kind="asset", status="assigned"),
+        on_loan=models.list_loans(conn, "open"),
+        overdue=models.list_loans(conn, "overdue"),
+        loan_counts=models.loan_counts(conn),
+        days_overdue=models.days_overdue,
     )
 
 
@@ -157,7 +166,9 @@ def item_detail(request: Request, item_id: int,
         return redirect("/items", err="That item doesn't exist.")
     return render(request, "item_detail.html", item=item,
                   history=models.item_history(conn, item_id),
-                  people=models.list_people(conn))
+                  people=models.list_people(conn),
+                  loans=models.list_loans(conn, "open", item_id=item_id),
+                  days_overdue=models.days_overdue)
 
 
 @app.get("/items/{item_id}/edit", response_class=HTMLResponse)
@@ -190,13 +201,31 @@ def item_edit(item_id: int, name: str = Form(""), category: str = Form(""),
 
 @app.post("/items/{item_id}/checkout")
 def item_checkout(item_id: int, person_id: int = Form(0), actor: str = Form(""),
-                  note: str = Form(""), conn: sqlite3.Connection = Depends(get_conn)):
+                  note: str = Form(""), due_on: str = Form(""),
+                  conn: sqlite3.Connection = Depends(get_conn)):
     try:
-        inventory.check_out(conn, item_id, person_id, actor=actor, note=note)
+        inventory.check_out(conn, item_id, person_id, actor=actor, note=note,
+                            due_on=due_on)
     except inventory.StockError as exc:
         return redirect(f"/items/{item_id}", err=str(exc), actor=actor)
     person = models.get_person(conn, person_id)
-    return redirect(f"/items/{item_id}", msg=f"Checked out to {person['name']}.",
+    due = f" Due back {due_on}." if due_on.strip() else ""
+    return redirect(f"/items/{item_id}", msg=f"Checked out to {person['name']}.{due}",
+                    actor=actor)
+
+
+@app.post("/items/{item_id}/lend")
+def item_lend(item_id: int, qty: int = Form(0), person_id: int = Form(0),
+              actor: str = Form(""), note: str = Form(""), due_on: str = Form(""),
+              conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        inventory.lend(conn, item_id, qty, person_id, actor=actor, note=note,
+                       due_on=due_on)
+    except inventory.StockError as exc:
+        return redirect(f"/items/{item_id}", err=str(exc), actor=actor)
+    person = models.get_person(conn, person_id)
+    due = f", due back {due_on}" if due_on.strip() else ""
+    return redirect(f"/items/{item_id}", msg=f"Lent {qty} to {person['name']}{due}.",
                     actor=actor)
 
 
@@ -264,6 +293,46 @@ def item_adjust(item_id: int, new_qty: int = Form(0), actor: str = Form(""),
     except inventory.StockError as exc:
         return redirect(f"/items/{item_id}", err=str(exc), actor=actor)
     return redirect(f"/items/{item_id}", msg=f"Count set to {new_qty}.", actor=actor)
+
+
+# ---------------------------------------------------------------- loans ----
+
+@app.get("/loans", response_class=HTMLResponse)
+def loans(request: Request, state: str = "open", person_id: int = 0,
+          conn: sqlite3.Connection = Depends(get_conn)):
+    """What's out, with anything late at the top."""
+    if state not in ("open", "overdue", "due_soon", "returned", "all"):
+        state = "open"
+    rows = models.list_loans(conn, state, person_id=person_id or None)
+    return render(request, "loans.html", loans=rows, state=state,
+                  counts=models.loan_counts(conn), people=models.list_people(conn),
+                  f_person=person_id, days_overdue=models.days_overdue)
+
+
+@app.post("/loans/{loan_id}/return")
+def loan_return(loan_id: int, qty: int = Form(0), actor: str = Form(""),
+                note: str = Form(""), back_to: str = Form("/loans"),
+                conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        inventory.return_loan(conn, loan_id, qty=qty or None, actor=actor, note=note)
+    except inventory.StockError as exc:
+        return redirect(back_to, err=str(exc), actor=actor)
+    return redirect(back_to, msg="Returned, thanks.", actor=actor)
+
+
+@app.post("/loans/{loan_id}/due")
+def loan_due(loan_id: int, due_on: str = Form(""), actor: str = Form(""),
+             back_to: str = Form("/loans"),
+             conn: sqlite3.Connection = Depends(get_conn)):
+    """Extend or set a date on a loan that's already out."""
+    try:
+        inventory.set_loan_due(conn, loan_id, due_on, actor=actor)
+    except inventory.StockError as exc:
+        return redirect(back_to, err=str(exc), actor=actor)
+    return redirect(back_to,
+                    msg=f"Due date set to {due_on}." if due_on.strip()
+                        else "Due date removed — that loan is now open-ended.",
+                    actor=actor)
 
 
 # --------------------------------------------------------------- people ----

@@ -68,7 +68,8 @@ def add_consumable(client, name="Cat6 patch cable 2m", qty=10, reorder=3) -> int
 
 def test_every_page_loads_on_an_empty_database(client):
     for path in ("/", "/items", "/items/new", "/people", "/history", "/data",
-                 "/healthz"):
+                 "/loans", "/loans?state=overdue", "/loans?state=due_soon",
+                 "/loans?state=returned", "/healthz"):
         assert client.get(path).status_code == 200, path
 
 
@@ -131,6 +132,113 @@ def test_low_stock_reaches_the_dashboard(client):
                 follow_redirects=False)
     page = client.get("/").text
     assert "Running low" in page and "Cat6 patch cable 2m" in page
+
+
+# ---------------------------------------------------------------- loans ----
+
+def _in_days(days: int) -> str:
+    from datetime import date, timedelta
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
+def test_lending_a_consumable_and_taking_it_back_through_the_routes(client):
+    person = add_person(client)
+    item_id = add_consumable(client, qty=40)
+
+    response = client.post(f"/items/{item_id}/lend",
+                           data={"qty": 6, "person_id": person, "actor": "Ali",
+                                 "due_on": _in_days(7)},
+                           follow_redirects=False)
+    msg, err = flash(response)
+    assert err == "" and "Lent 6 to Sam Okafor" in msg
+
+    page = client.get("/loans").text
+    assert "Cat6 patch cable 2m" in page and "Sam Okafor" in page
+
+    loans = client.get("/loans?state=open").text
+    assert "open-ended" not in loans          # this one has a date
+
+    # Give it back through the Loans page.
+    from app import config, db, models
+    conn = db.connect(config.DB_PATH)
+    loan_id = models.list_loans(conn, "open")[0]["id"]
+    conn.close()
+
+    response = client.post(f"/loans/{loan_id}/return",
+                           data={"qty": 6, "actor": "Ali"}, follow_redirects=False)
+    assert flash(response)[1] == ""
+    assert "Nothing is out on loan" in client.get("/loans").text
+
+
+def test_returning_from_a_filtered_view_comes_back_to_that_same_view(client):
+    """Regression test.
+
+    The redirect helper used to always append '?msg=...', so returning a loan
+    from /loans?state=overdue produced '/loans?state=overdue?msg=...'. The
+    state read as nonsense, silently fell back to 'open', and the confirmation
+    never appeared.
+    """
+    person = add_person(client)
+    item_id = add_consumable(client, qty=10)
+    client.post(f"/items/{item_id}/lend",
+                data={"qty": 2, "person_id": person, "actor": "Ali",
+                      "due_on": _in_days(-1)},
+                follow_redirects=False)
+
+    from app import config, db, models
+    conn = db.connect(config.DB_PATH)
+    loan_id = models.list_loans(conn, "open")[0]["id"]
+    conn.close()
+
+    response = client.post(f"/loans/{loan_id}/return",
+                           data={"qty": 2, "actor": "Ali",
+                                 "back_to": "/loans?state=overdue"},
+                           follow_redirects=False)
+
+    location = response.headers["location"]
+    assert "state=overdue&" in location or location.endswith("state=overdue")
+    assert location.count("?") == 1
+    assert flash(response)[0] == "Returned, thanks."
+
+
+def test_an_overdue_loan_shows_on_the_loans_page_and_the_dashboard(client):
+    person = add_person(client)
+    item_id = add_asset(client)
+
+    client.post(f"/items/{item_id}/checkout",
+                data={"person_id": person, "actor": "Ali", "due_on": _in_days(-3)},
+                follow_redirects=False)
+
+    overdue_page = client.get("/loans?state=overdue").text
+    assert "Dell Latitude 5540" in overdue_page
+    assert "3 days late" in overdue_page
+
+    dashboard = client.get("/").text
+    assert "Overdue" in dashboard and "Dell Latitude 5540" in dashboard
+
+
+def test_an_open_ended_loan_is_never_overdue_through_the_routes(client):
+    person = add_person(client)
+    item_id = add_asset(client)
+    client.post(f"/items/{item_id}/checkout",
+                data={"person_id": person, "actor": "Ali", "due_on": ""},
+                follow_redirects=False)
+
+    assert "Nothing is overdue" in client.get("/loans?state=overdue").text
+    assert "open-ended" in client.get("/loans").text
+
+
+def test_a_bad_due_date_is_rejected_by_the_route(client):
+    person = add_person(client)
+    item_id = add_asset(client)
+
+    response = client.post(f"/items/{item_id}/checkout",
+                           data={"person_id": person, "actor": "Ali",
+                                 "due_on": "whenever"},
+                           follow_redirects=False)
+    msg, err = flash(response)
+    assert msg == "" and "isn't a date" in err
+    assert "In stock" in client.get(f"/items/{item_id}").text
 
 
 # --------------------------------------------------------------- search ----

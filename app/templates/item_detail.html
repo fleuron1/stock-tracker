@@ -52,6 +52,11 @@
           {% else %}
             <p class="empty">Add someone on the <a href="/people">People</a> page first.</p>
           {% endif %}
+          <label>Due back
+            <input type="date" name="due_on">
+            <small>Leave empty for an open-ended loan. Only dated loans are
+                   chased.</small>
+          </label>
           {{ m.actor_field(people, actor) }}
           <label>Note <input type="text" name="note" placeholder="optional"></label>
           <button class="primary" type="submit" {% if not people %}disabled{% endif %}>Check out</button>
@@ -101,6 +106,7 @@
     {% else %}
       <form method="post" action="/items/{{ item.id }}/stock-out">
         <h3>Take out</h3>
+        <p class="muted">For units being used up and not coming back.</p>
         <label>How many <input type="number" name="qty" min="1" max="{{ item.quantity }}"
                               value="1" required></label>
         {{ m.person_select(people, required=False, blank='(nobody in particular)') }}
@@ -108,6 +114,26 @@
         <label>Note <input type="text" name="note" placeholder="optional"></label>
         <button class="primary" type="submit" {% if not item.quantity %}disabled{% endif %}>
           Take out</button>
+      </form>
+
+      <form method="post" action="/items/{{ item.id }}/lend">
+        <h3>Lend</h3>
+        <p class="muted">For units you expect back.</p>
+        <label>How many <input type="number" name="qty" min="1" max="{{ item.quantity }}"
+                              value="1" required></label>
+        {% if people %}
+          {{ m.person_select(people) }}
+        {% else %}
+          <p class="empty">Add someone on the <a href="/people">People</a> page first.</p>
+        {% endif %}
+        <label>Due back
+          <input type="date" name="due_on">
+          <small>Leave empty for an open-ended loan.</small>
+        </label>
+        {{ m.actor_field(people, actor) }}
+        <label>Note <input type="text" name="note" placeholder="optional"></label>
+        <button type="submit"
+                {% if not item.quantity or not people %}disabled{% endif %}>Lend</button>
       </form>
 
       <form method="post" action="/items/{{ item.id }}/stock-in">
@@ -128,6 +154,48 @@
     {% endif %}
   </section>
 </div>
+
+{% if loans %}
+<section>
+  <h2>Out on loan</h2>
+  <table>
+    <thead><tr><th>With</th><th>Qty</th><th>Out since</th><th>Due</th><th></th></tr></thead>
+    <tbody>
+      {% for l in loans %}
+      {% set late = days_overdue(l) %}
+      <tr class="{% if late %}low{% endif %}">
+        <td>{{ l.person_name or 'unknown' }}
+            {% if l.department %}<span class="muted">{{ l.department }}</span>{% endif %}</td>
+        <td>{{ l.outstanding }}{% if l.returned_qty %}
+            <span class="muted">of {{ l.qty }}</span>{% endif %}</td>
+        <td class="muted nowrap">{{ l.out_at[:10] }}</td>
+        <td class="nowrap">
+          {% if l.due_on %}{{ l.due_on }}
+            {% if late %}<span class="pill s-low">{{ late }} day{{ '' if late == 1 else 's' }} late</span>{% endif %}
+          {% else %}<span class="muted">open-ended</span>{% endif %}
+        </td>
+        <td class="nowrap">
+          {% if item.kind == 'consumable' %}
+          <form method="post" action="/loans/{{ l.id }}/return" class="row-form">
+            <input type="hidden" name="back_to" value="/items/{{ item.id }}">
+            {% if l.outstanding > 1 %}
+              <input type="number" name="qty" min="1" max="{{ l.outstanding }}"
+                     value="{{ l.outstanding }}" aria-label="How many back">
+            {% endif %}
+            <input type="text" name="actor" value="{{ actor }}" list="people-names"
+                   placeholder="your name" aria-label="Done by" required>
+            <button type="submit">Returned</button>
+          </form>
+          {% else %}
+            <span class="muted">use Check in above</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
 
 <section>
   <h2>History</h2>

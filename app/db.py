@@ -12,12 +12,25 @@ from pathlib import Path
 
 from . import config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Applied in order to databases created by an older version. A brand-new
 # database gets the current schema straight from SCHEMA_SQL and skips these.
 MIGRATIONS: dict[int, list[str]] = {
     2: ["ALTER TABLE transactions ADD COLUMN detail TEXT NOT NULL DEFAULT ''"],
+    3: [
+        # The loans table itself comes from SCHEMA_SQL, which has already run
+        # by the time migrations are applied. What's needed here is to give
+        # assets that are already checked out an open loan, so nothing that is
+        # currently out disappears from the Loans page. They get no due date,
+        # because nobody ever agreed one.
+        """
+        INSERT INTO loans (item_id, person_id, qty, out_at, due_on, returned_qty)
+        SELECT id, assigned_to, 1, updated_at, NULL, 0
+        FROM items
+        WHERE kind = 'asset' AND status = 'assigned' AND assigned_to IS NOT NULL
+        """,
+    ],
 }
 
 SCHEMA_SQL = """
@@ -70,6 +83,28 @@ CREATE TABLE IF NOT EXISTS transactions (
     note       TEXT    NOT NULL DEFAULT ''
 );
 
+-- Things that have gone out and are expected back. An asset loan is always
+-- one unit; a consumable loan can be several, and can come back in parts,
+-- which is why the quantity out and the quantity returned are both recorded.
+-- `due_on` is deliberately nullable: plenty of kit goes out open-ended, and
+-- only a loan with a date can ever be overdue.
+CREATE TABLE IF NOT EXISTS loans (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    person_id      INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    qty            INTEGER NOT NULL DEFAULT 1,
+    returned_qty   INTEGER NOT NULL DEFAULT 0,
+    out_at         TEXT    NOT NULL,
+    due_on         TEXT,                    -- 'YYYY-MM-DD', or NULL for open-ended
+    returned_at    TEXT,                    -- set once everything is back
+    last_remind_at TEXT,                    -- so a borrower isn't emailed daily
+    note           TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_loans_open        ON loans(returned_at);
+CREATE INDEX IF NOT EXISTS idx_loans_due         ON loans(due_on);
+CREATE INDEX IF NOT EXISTS idx_loans_item        ON loans(item_id);
+CREATE INDEX IF NOT EXISTS idx_loans_person      ON loans(person_id);
 CREATE INDEX IF NOT EXISTS idx_items_asset_tag   ON items(asset_tag);
 CREATE INDEX IF NOT EXISTS idx_items_name        ON items(name);
 CREATE INDEX IF NOT EXISTS idx_items_kind        ON items(kind);
@@ -81,6 +116,8 @@ CREATE INDEX IF NOT EXISTS idx_tx_ts             ON transactions(ts);
 TX_LABELS = {
     "check_out": "Checked out",
     "check_in": "Checked in",
+    "lent": "Lent",
+    "returned": "Returned",
     "stock_in": "Stock in",
     "stock_out": "Stock out",
     "adjust": "Adjusted",
@@ -97,6 +134,11 @@ STATUS_LABELS = {
     "repair": "In repair",
     "retired": "Retired",
 }
+
+
+def today() -> str:
+    """Today as 'YYYY-MM-DD', matching how due dates are stored."""
+    return datetime.now().date().isoformat()
 
 
 def now() -> str:

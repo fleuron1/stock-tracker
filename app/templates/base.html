@@ -13,6 +13,7 @@
   <nav>
     <a href="/" {% if request.url.path == '/' %}class="on"{% endif %}>Dashboard</a>
     <a href="/items" {% if request.url.path.startswith('/items') %}class="on"{% endif %}>Inventory</a>
+    <a href="/loans" {% if request.url.path.startswith('/loans') %}class="on"{% endif %}>On loan</a>
     <a href="/people" {% if request.url.path.startswith('/people') %}class="on"{% endif %}>People</a>
     <a href="/history" {% if request.url.path.startswith('/history') %}class="on"{% endif %}>History</a>
     <a href="/data" {% if request.url.path.startswith('/data') %}class="on"{% endif %}>Import / export</a>

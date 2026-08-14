@@ -81,5 +81,45 @@ def test_a_version_1_database_gains_the_detail_column_without_losing_data(tmp_pa
 
     # And the upgraded database still works.
     inventory.check_out(conn, 1, models.create_person(conn, "Sam"), actor="Ali")
-    assert models.item_history(conn, 1)[0]["detail"] == "Off the shelf to Sam"
+    assert models.item_history(conn, 1)[0]["detail"] \
+        == "Off the shelf to Sam, no date agreed"
+    conn.close()
+
+
+def test_upgrading_gives_already_assigned_assets_an_open_loan(tmp_path):
+    """Kit that was already out must not vanish when loans are introduced.
+
+    Version 3 added the loans table. An IT room upgrading mid-week could have
+    laptops sitting with someone; those need an open loan record or the Loans
+    page would claim nothing is out.
+    """
+    path = tmp_path / "old.db"
+    old = db.connect(path)
+    old.executescript(V1_SCHEMA)
+    old.execute("INSERT INTO people (name, email, created_at)"
+                " VALUES ('Sam Okafor', 'sam@example.com', '2020-01-01')")
+    old.execute("INSERT INTO items (kind, name, status, assigned_to, created_at,"
+                " updated_at) VALUES ('asset', 'Laptop out with Sam', 'assigned', 1,"
+                " '2020-01-01', '2020-02-02')")
+    old.execute("INSERT INTO items (kind, name, status, created_at, updated_at)"
+                " VALUES ('asset', 'Laptop on the shelf', 'in_stock',"
+                " '2020-01-01', '2020-01-01')")
+    old.commit()
+    old.close()
+
+    conn = db.connect(path)
+    db.init_db(conn)
+
+    open_loans = models.list_loans(conn, "open")
+    assert len(open_loans) == 1
+    loan = open_loans[0]
+    assert loan["item_name"] == "Laptop out with Sam"
+    assert loan["person_name"] == "Sam Okafor"
+    # No date, because nobody ever agreed one -- so it can't be wrongly overdue.
+    assert loan["due_on"] is None
+    assert models.list_loans(conn, "overdue") == []
+
+    # And checking it back in closes that loan properly.
+    inventory.check_in(conn, loan["item_id"], actor="Ali")
+    assert models.list_loans(conn, "open") == []
     conn.close()

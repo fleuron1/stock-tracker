@@ -60,7 +60,7 @@ def test_check_out_then_in_leaves_a_trail(conn, person):
     assert check_out_row["note"] == "new starter"
     # The app describes the move itself, naming the person and their team, so
     # the log reads without anyone having typed a note.
-    assert check_out_row["detail"] == "Off the shelf to Sam Okafor (IT)"
+    assert check_out_row["detail"] == "Off the shelf to Sam Okafor (IT), no date agreed"
 
     # The person who had it is recorded on the way back in, too.
     check_in_row = next(r for r in history if r["kind"] == "check_in")
