@@ -46,6 +46,11 @@ templates.env.globals.update(
 # so a route added later is protected whether or not anyone remembers to.
 PUBLIC_PATHS = {"/login", "/healthz"}
 
+# A stock list for one IT room is a few hundred rows. Anything approaching
+# this is a mistake or an attempt to exhaust memory, and either way we would
+# rather say so than try to swallow it.
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
 
 # Everything the pages need comes from this app: no CDNs, no external images,
 # no fonts from elsewhere. Saying so explicitly means that even if hostile
@@ -99,7 +104,7 @@ async def security_headers(request: Request, call_next):
 async def require_sign_in(request: Request, call_next):
     """Turn away anyone not signed in, and hand routes the signed-in user."""
     path = request.url.path
-    if path in PUBLIC_PATHS or path.startswith("/static"):
+    if path in PUBLIC_PATHS or path.startswith("/static/"):
         return await call_next(request)
 
     conn = db.connect()
@@ -147,6 +152,28 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def safe_path(candidate: str, fallback: str = "/") -> str:
+    r"""Reduce a caller-supplied destination to somewhere inside this app.
+
+    Forms carry where to return to (`next` when signing in, `back_to` when
+    finishing with a loan). Without this, a link could send someone here and
+    have the app bounce them straight back out to a page an attacker controls,
+    which is a convincing way to set up a fake sign-in screen.
+
+    Backslashes are rejected outright because browsers treat them as forward
+    slashes in a URL, so "/\evil.example.com" becomes protocol-relative and
+    leaves the site.
+    """
+    if not candidate or "\\" in candidate:
+        return fallback
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return fallback
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc:
+        return fallback
+    return candidate
+
+
 def redirect(path: str, msg: str = "", err: str = "") -> RedirectResponse:
     """Post/redirect/get, carrying a one-line result in the query string."""
     params = {k: v for k, v in (("msg", msg), ("err", err)) if v}
@@ -191,9 +218,7 @@ def login(request: Request, username: str = Form(""), password: str = Form(""),
     except auth.AuthError as exc:
         return redirect(f"/login?{urlencode({'next': next})}", err=str(exc))
 
-    # Only ever bounce back to somewhere inside this app.
-    destination = next if next.startswith("/") and not next.startswith("//") else "/"
-    response = RedirectResponse(destination, status_code=303)
+    response = RedirectResponse(safe_path(next), status_code=303)
     response.set_cookie(auth.SESSION_COOKIE, token, httponly=True, samesite="lax",
                         max_age=60 * 60 * 24 * auth.SESSION_DAYS)
     return response
@@ -518,6 +543,7 @@ def loans(request: Request, state: str = "open", person_id: int = 0,
 def loan_return(request: Request, loan_id: int, qty: int = Form(0),
                 note: str = Form(""), back_to: str = Form("/loans"),
                 conn: sqlite3.Connection = Depends(get_conn)):
+    back_to = safe_path(back_to, "/loans")
     try:
         inventory.return_loan(conn, loan_id, qty=qty or None,
                               actor=actor_of(request), note=note)
@@ -531,6 +557,7 @@ def loan_due(request: Request, loan_id: int, due_on: str = Form(""),
              back_to: str = Form("/loans"),
              conn: sqlite3.Connection = Depends(get_conn)):
     """Extend or set a date on a loan that's already out."""
+    back_to = safe_path(back_to, "/loans")
     try:
         inventory.set_loan_due(conn, loan_id, due_on, actor=actor_of(request))
     except inventory.StockError as exc:
@@ -608,9 +635,15 @@ def data_import(request: Request, file: UploadFile,
     # database dependency in the same worker thread, which is what SQLite
     # requires. An `async def` here would open the connection in one thread and
     # use it in another.
-    raw = file.file.read()
+    # Read one byte more than the limit: if we get it, the file is too big.
+    raw = file.file.read(MAX_UPLOAD_BYTES + 1)
     if not raw:
         return redirect("/data", err="That file was empty.")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return redirect(
+            "/data",
+            err=f"That file is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)}MB."
+                " Split it up, or check it's really a stock list.")
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:

@@ -15,6 +15,10 @@ from typing import Any
 from . import inventory, models, notifications, validation
 from .db import now
 
+# Well beyond any real IT room, but bounded, so a huge file is rejected
+# rather than worked through.
+MAX_ROWS = 20_000
+
 ITEM_COLUMNS = [
     "kind", "name", "category", "asset_tag", "serial_number", "location",
     "status", "assigned_to", "quantity", "reorder_level", "notes",
@@ -55,6 +59,28 @@ HEADER_ALIASES = {
 }
 
 
+# Excel and Sheets treat a cell starting with any of these as a formula and
+# will run it when the file is opened -- so an item named =cmd|'/c calc'!A1
+# becomes code on the machine of whoever opens the export. Prefixing an
+# apostrophe makes the spreadsheet read it as text. The import strips that
+# apostrophe again, so a file still round-trips unchanged.
+FORMULA_STARTERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_cell(value):
+    """Stop a spreadsheet treating exported text as a formula."""
+    if isinstance(value, str) and value.startswith(FORMULA_STARTERS):
+        return "'" + value
+    return value
+
+
+def _unquote_cell(value: str) -> str:
+    """Undo _safe_cell, so an exported file re-imports as what it was."""
+    if value.startswith("'") and value[1:2] and value[1:].startswith(FORMULA_STARTERS):
+        return value[1:]
+    return value
+
+
 def _normalise_header(header: str) -> str:
     key = (header or "").strip().lower().replace(" ", "_").replace("-", "_")
     return HEADER_ALIASES.get(key, key)
@@ -68,7 +94,7 @@ def export_items(conn: sqlite3.Connection) -> str:
     writer = csv.writer(buf)
     writer.writerow(ITEM_COLUMNS)
     for item in models.list_items(conn):
-        writer.writerow([
+        writer.writerow([_safe_cell(cell) for cell in [
             item["kind"],
             item["name"],
             item["category"],
@@ -80,7 +106,7 @@ def export_items(conn: sqlite3.Connection) -> str:
             "" if item["quantity"] is None else item["quantity"],
             "" if item["reorder_level"] is None else item["reorder_level"],
             item["notes"],
-        ])
+        ]])
     return buf.getvalue()
 
 
@@ -95,7 +121,7 @@ def export_history(conn: sqlite3.Connection, rows: list[sqlite3.Row] | None = No
     writer = csv.writer(buf)
     writer.writerow(HISTORY_COLUMNS)
     for tx in rows:
-        writer.writerow([
+        writer.writerow([_safe_cell(cell) for cell in [
             tx["ts"],
             TX_LABELS.get(tx["kind"], tx["kind"]),
             tx["item_name"],
@@ -106,7 +132,7 @@ def export_history(conn: sqlite3.Connection, rows: list[sqlite3.Row] | None = No
             tx["actor"],
             tx["detail"],
             tx["note"],
-        ])
+        ]])
     return buf.getvalue()
 
 
@@ -159,12 +185,17 @@ def import_items(conn: sqlite3.Connection, file_text: str,
         original = fields.get(key)
         if original is None:
             return ""
-        return (row.get(original) or "").strip()
+        return _unquote_cell((row.get(original) or "").strip())
 
     planned: list[dict[str, Any]] = []
     seen_tags: dict[str, int] = {}
 
     for offset, row in enumerate(reader):
+        if offset >= MAX_ROWS:
+            errors.append(
+                f"That file has more than {MAX_ROWS:,} rows, which is far more"
+                " than an IT room holds. Nothing was imported.")
+            break
         line = offset + 2  # +1 for the header, +1 because humans count from 1
         name = cell(row, "name")
         if not name:

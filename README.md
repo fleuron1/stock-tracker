@@ -289,6 +289,31 @@ working logins. The cookie is HttpOnly (script can't read it) and SameSite=Lax
 (another site can't make your browser post with it). A state-changing request
 that announces it came from another site is refused outright.
 
+### Findings from the pentest of 22 August 2026
+
+The build was probed with 29 attacks from an ordinary account, an admin
+account and no account at all. Seven probes found something; all seven are
+fixed, and each has a regression test in `tests/test_security.py`.
+
+| What was wrong | Why it mattered |
+|---|---|
+| `back_to` on the loans forms accepted any address | The app would redirect to a site an attacker named — a convincing way to land someone on a fake sign-in page |
+| `next` on sign-in could be slipped past with a backslash | Browsers read `\` as `/`, so `/\evil.example.com` left the site |
+| CSV exports could carry spreadsheet formulas | An item named `=cmd\|'/c calc'!A1` runs when the export is opened in Excel |
+| Sign-in answered faster for unknown usernames | 23ms versus 318ms told an attacker which accounts exist, before any password was guessed |
+| Uploads were read whole into memory | A large file could exhaust the host |
+| Imports had no row limit | Same, by a different route |
+| The public-path check matched a prefix | A future page called `/statistics` would have been public, because it starts with `/static` |
+
+The last one was not exploitable — there is no such page — but it was one
+route name away from being an authentication bypass, which is why the check
+now matches the whole `/static/` folder.
+
+Attacks that failed on the first run, and are also now under test: reaching
+any page or action without an account, an ordinary user creating an admin or
+changing another account's password, SQL injection through every text field,
+and script tags in names and notes.
+
 ### What is not protected
 
 **Traffic is not encrypted.** The app speaks plain HTTP, so on the office

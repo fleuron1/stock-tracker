@@ -219,7 +219,16 @@ def sign_in(conn: sqlite3.Connection, username: str, password: str) -> str:
             f"{'' if waiting == 1 else 's'}.")
 
     user = get_user_by_name(conn, username)
-    if user is None or not verify_password(password, user["password_hash"]):
+    if user is None:
+        # Spend the same effort as a real check would. Without this, a wrong
+        # password against a real account takes a third of a second while an
+        # unknown name comes back immediately -- which is all someone needs to
+        # work out which accounts exist.
+        hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                            b"no-such-user", PBKDF2_ROUNDS)
+        _record_failure(conn, username)
+        raise AuthError("That username and password don't match.")
+    if not verify_password(password, user["password_hash"]):
         _record_failure(conn, username)
         raise AuthError("That username and password don't match.")
     if not user["active"]:

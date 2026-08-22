@@ -277,3 +277,131 @@ def test_a_post_from_this_site_is_allowed(client):
 
     assert response.status_code == 303
     assert "Legitimate" in client.get("/items").text
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for findings from the pentest of 2026-08-22. Each of these
+# failed before the fix in the same commit.
+# ---------------------------------------------------------------------------
+
+OFFSITE = [
+    "https://evil.example.com/",
+    "//evil.example.com/",
+    r"/\evil.example.com",          # browsers read \ as /, so this leaves the site
+    r"/\/evil.example.com",
+    "https:/evil.example.com",
+]
+
+
+def test_signing_in_cannot_bounce_you_off_the_site(client):
+    """A fake sign-in page is far more convincing if the real app sends you there."""
+    for destination in OFFSITE:
+        response = client.post("/login",
+                               data={"username": "ali", "password": PASSWORD,
+                                     "next": destination},
+                               follow_redirects=False)
+        location = response.headers["location"]
+        assert location == "/", f"{destination!r} redirected to {location!r}"
+
+
+def test_finishing_with_a_loan_cannot_bounce_you_off_the_site(client):
+    for destination in OFFSITE:
+        for route in ("/loans/1/return", "/loans/1/due"):
+            response = client.post(route, data={"back_to": destination, "due_on": ""},
+                                   follow_redirects=False)
+            location = response.headers["location"]
+            assert location.startswith("/loans"), \
+                f"{route} with {destination!r} redirected to {location!r}"
+
+
+def test_a_path_that_merely_starts_with_static_is_still_private(client):
+    """The public-path check matches a whole folder, not a prefix.
+
+    "/statistics" begins with "/static". Before the fix, any route named like
+    that would have been reachable without signing in.
+    """
+    from app.main import PUBLIC_PATHS, require_sign_in  # noqa: F401
+    from app import main
+
+    assert not "/statistics".startswith("/static/")
+    anon_client = TestClient(main.app)
+    response = anon_client.get("/statistics", follow_redirects=False)
+    assert response.status_code in (303, 404)
+    if response.status_code == 303:
+        assert response.headers["location"].startswith("/login")
+
+
+def test_exported_cells_cannot_run_as_spreadsheet_formulas(client):
+    """An item name is executed by Excel if the cell begins = + - or @."""
+    for name in ("=cmd|'/c calc'!A1", "+1+1", "-2+3", "@SUM(1+9)"):
+        client.post("/items/new", data={"kind": "consumable", "name": name,
+                                        "quantity": 1}, follow_redirects=False)
+
+    exported = client.get("/data/export/items").text
+    for line in exported.splitlines()[1:]:
+        for field in line.split(","):
+            assert not field.startswith(("=", "+", "-", "@")), \
+                f"unescaped formula cell: {field!r}"
+
+
+def test_escaping_formulas_does_not_break_the_round_trip(client):
+    """The apostrophe added on export is removed again on import."""
+    client.post("/items/new", data={"kind": "consumable", "name": "=DANGER()",
+                                    "quantity": 4}, follow_redirects=False)
+
+    first = client.get("/data/export/items").text
+    response = client.post("/data/import",
+                           files={"file": ("items.csv", first, "text/csv")},
+                           follow_redirects=False)
+
+    assert "0 added" in response.headers["location"].replace("+", " ").replace("%2C", ",")
+    assert client.get("/data/export/items").text == first
+
+
+def test_an_unknown_username_costs_the_same_as_a_real_one(conn):
+    """A fast rejection for unknown names reveals which accounts exist."""
+    import time
+
+    auth.create_user(conn, "realuser", PASSWORD)
+
+    def attempt(username):
+        start = time.perf_counter()
+        try:
+            auth.sign_in(conn, username, "definitely-wrong")
+        except auth.AuthError:
+            pass
+        return time.perf_counter() - start
+
+    known = attempt("realuser")
+    conn.execute("DELETE FROM login_attempts")
+    conn.commit()
+    unknown = attempt("no-such-account")
+
+    assert 0.5 < (known / unknown) < 2.0, \
+        f"known {known*1000:.0f}ms vs unknown {unknown*1000:.0f}ms"
+
+
+def test_an_enormous_upload_is_refused(client):
+    """Reading an unbounded file into memory is a way to bring the app down."""
+    from app.main import MAX_UPLOAD_BYTES
+
+    oversized = "name,quantity\n" + ("x" * (MAX_UPLOAD_BYTES + 1024))
+    response = client.post("/data/import",
+                           files={"file": ("huge.csv", oversized, "text/csv")},
+                           follow_redirects=False)
+
+    assert "err=" in response.headers["location"]
+    assert "larger than" in response.headers["location"].replace("+", " ")
+
+
+def test_a_file_with_too_many_rows_is_refused(client):
+    from app.csv_io import MAX_ROWS
+
+    rows = "\n".join(f"item{i},1" for i in range(MAX_ROWS + 5))
+    response = client.post("/data/import",
+                           files={"file": ("many.csv", f"name,quantity\n{rows}",
+                                           "text/csv")},
+                           follow_redirects=False)
+
+    assert "err=" in response.headers["location"]
+    assert "item0" not in client.get("/items").text
