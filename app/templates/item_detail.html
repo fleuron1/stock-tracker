@@ -66,7 +66,7 @@
         </form>
 
         <form method="post" action="/items/{{ item.id }}/retire" class="inline-form"
-              onsubmit="return confirm('Retire this asset? It stays in the database with its history, but leaves the shelf.')">
+              data-confirm="Retire this asset? It stays in the database with its history, but leaves the shelf.">
           <label>Reason <input type="text" name="note" placeholder="optional"></label>
           <button type="submit">Retire</button>
         </form>
@@ -87,7 +87,7 @@
           <button class="primary" type="submit">Repaired &mdash; back on the shelf</button>
         </form>
         <form method="post" action="/items/{{ item.id }}/retire" class="inline-form"
-              onsubmit="return confirm('Retire this asset?')">
+              data-confirm="Retire this asset?">
           <label>Reason <input type="text" name="note" placeholder="beyond repair"></label>
           <button type="submit">Retire</button>
         </form>

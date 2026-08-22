@@ -6,13 +6,14 @@ have a complete backup.
 
 from __future__ import annotations
 
+import secrets
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 from . import config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Applied in order to databases created by an older version. A brand-new
 # database gets the current schema straight from SCHEMA_SQL and skips these.
@@ -35,9 +36,29 @@ MIGRATIONS: dict[int, list[str]] = {
     # already run by this point, so there is nothing to alter -- existing rows
     # are untouched and the history keeps whatever names were typed before.
     4: [],
+    # Version 5 added rate limiting on sign-in. Its tables come from
+    # SCHEMA_SQL, so there is nothing to alter here.
+    5: [],
 }
 
 SCHEMA_SQL = """
+-- A few values the app generates for itself and must keep between restarts,
+-- such as the key used to sign things. Not user settings.
+CREATE TABLE IF NOT EXISTS settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
+
+-- Failed sign-in attempts, so a password can't be guessed at speed. Keyed by
+-- the username that was tried, including ones that don't exist -- otherwise
+-- the lockout itself would reveal which accounts are real.
+CREATE TABLE IF NOT EXISTS login_attempts (
+    username         TEXT PRIMARY KEY,
+    failures         INTEGER NOT NULL DEFAULT 0,
+    last_failure_at  TEXT,
+    locked_until     TEXT
+);
+
 -- Staff who sign in and operate the app. Deliberately NOT the same thing as
 -- `people`: a user is someone who runs the IT room, a person is someone kit
 -- gets lent to. Most people never need an account, and a user need not appear
@@ -219,3 +240,22 @@ def init_db(conn: sqlite3.Connection) -> None:
 
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
+    _ensure_secret(conn)
+
+
+def _ensure_secret(conn: sqlite3.Connection) -> None:
+    """Generate this installation's signing key once, and keep it.
+
+    Stored rather than configured so there is nothing for anyone to forget to
+    set, and so it differs between installations.
+    """
+    row = conn.execute("SELECT value FROM settings WHERE key = 'secret'").fetchone()
+    if row is None:
+        conn.execute("INSERT INTO settings (key, value) VALUES ('secret', ?)",
+                     (secrets.token_hex(32),))
+        conn.commit()
+
+
+def get_secret(conn: sqlite3.Connection) -> str:
+    row = conn.execute("SELECT value FROM settings WHERE key = 'secret'").fetchone()
+    return row["value"] if row else ""

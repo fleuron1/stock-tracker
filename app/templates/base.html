@@ -47,24 +47,6 @@
     {% if user %}{{ user.display_name }}{% else %}whoever is signed in{% endif %}.</span>
 </footer>
 
-<script>
-// The only script in the app, and it exists for the barcode scanner.
-(function () {
-  // The autofocus attribute alone isn't dependable -- browsers skip it when a
-  // page opens in a background tab -- and a scan that lands nowhere is silently
-  // lost, so put the cursor in the box ourselves.
-  var box = document.querySelector('.topsearch input');
-  if (box && box.hasAttribute('autofocus')) { box.focus(); }
-
-  // "/" jumps to the search box from any page, for typing rather than scanning.
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== '/' || e.ctrlKey || e.altKey || e.metaKey) { return; }
-    var tag = (document.activeElement.tagName || '').toUpperCase();
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
-    e.preventDefault();
-    if (box) { box.focus(); }
-  });
-})();
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ import io
 import sqlite3
 from typing import Any
 
-from . import inventory, models, notifications
+from . import inventory, models, notifications, validation
 from .db import now
 
 ITEM_COLUMNS = [
@@ -208,15 +208,33 @@ def import_items(conn: sqlite3.Connection, file_text: str,
                 continue
             seen_tags[tag.lower()] = line
 
+        # A spreadsheet is just as capable of carrying a 5,000-character name
+        # or an invisible character as a form is, so uploaded rows go through
+        # the same checks -- reported by line, like every other CSV problem.
+        try:
+            name = validation.clean_text(name, "name", required=True)
+            tag = validation.clean_text(tag, "asset_tag")
+            clean = {
+                "category": validation.clean_text(cell(row, "category"), "category"),
+                "serial_number": validation.clean_text(
+                    cell(row, "serial_number"), "serial_number"),
+                "location": validation.clean_text(cell(row, "location"), "location"),
+                "notes": validation.clean_text(cell(row, "notes"), "notes",
+                                               multiline=True),
+            }
+        except validation.ValidationError as exc:
+            errors.append(f"Line {line}: {exc}")
+            continue
+
         entry = {
             "line": line,
             "kind": kind,
             "name": name,
-            "category": cell(row, "category"),
+            "category": clean["category"],
             "asset_tag": tag,
-            "serial_number": cell(row, "serial_number"),
-            "location": cell(row, "location"),
-            "notes": cell(row, "notes"),
+            "serial_number": clean["serial_number"],
+            "location": clean["location"],
+            "notes": clean["notes"],
             "status": status if kind == "asset" else None,
             "quantity": _parse_int(cell(row, "quantity"), "quantity", line, errors)
             if kind == "consumable" else None,

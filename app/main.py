@@ -10,14 +10,14 @@ from __future__ import annotations
 import sqlite3
 from contextlib import asynccontextmanager
 from typing import Iterator
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, config, csv_io, db, inventory, models, notifications
+from . import auth, config, csv_io, db, inventory, models, notifications, validation
 from .db import STATUS_LABELS, TX_LABELS
 
 @asynccontextmanager
@@ -45,6 +45,54 @@ templates.env.globals.update(
 # Pages reachable without signing in. Everything else is closed by default,
 # so a route added later is protected whether or not anyone remembers to.
 PUBLIC_PATHS = {"/login", "/healthz"}
+
+
+# Everything the pages need comes from this app: no CDNs, no external images,
+# no fonts from elsewhere. Saying so explicitly means that even if hostile
+# markup somehow reached a page, the browser would refuse to run it.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "          # no inline script -- app.js is a file
+        "style-src 'self'; "
+        "img-src 'self' data:; "       # data: covers the emoji favicon
+        "form-action 'self'; "         # forms can only post back here
+        "frame-ancestors 'none'; "     # nobody can frame this page
+        "base-uri 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Set the headers on the way out, and refuse cross-site posts on the way in.
+
+    The session cookie is already SameSite=Lax, which stops a browser sending
+    it with a form posted from another site. This is the belt to that pair of
+    braces: a state-changing request that announces it came from somewhere
+    else is refused outright.
+
+    A request with no Origin and no Referer is allowed through -- that is a
+    script or a curl command, not a browser being tricked, and an attacker
+    cannot make someone else's curl carry their cookies.
+    """
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin") or request.headers.get("referer")
+        if origin:
+            host = request.headers.get("host", "")
+            if urlparse(origin).netloc != host:
+                return PlainTextResponse(
+                    "That request looked like it came from another site, so it"
+                    " was refused.", status_code=403)
+
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
 
 
 @app.middleware("http")
@@ -504,9 +552,10 @@ def people_list(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
 @app.post("/people")
 def person_add(name: str = Form(""), email: str = Form(""), department: str = Form(""),
                conn: sqlite3.Connection = Depends(get_conn)):
-    if not name.strip():
-        return redirect("/people", err="A name is needed.")
-    models.create_person(conn, name, email, department)
+    try:
+        models.create_person(conn, name, email, department)
+    except validation.ValidationError as exc:
+        return redirect("/people", err=str(exc))
     return redirect("/people", msg=f"Added {name.strip()}.")
 
 
@@ -514,9 +563,10 @@ def person_add(name: str = Form(""), email: str = Form(""), department: str = Fo
 def person_edit(person_id: int, name: str = Form(""), email: str = Form(""),
                 department: str = Form(""), active: str = Form(""),
                 conn: sqlite3.Connection = Depends(get_conn)):
-    if not name.strip():
-        return redirect("/people", err="A name is needed.")
-    models.update_person(conn, person_id, name, email, department, bool(active))
+    try:
+        models.update_person(conn, person_id, name, email, department, bool(active))
+    except validation.ValidationError as exc:
+        return redirect("/people", err=str(exc))
     return redirect("/people", msg="Saved.")
 
 

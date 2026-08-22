@@ -11,12 +11,24 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from . import models, notifications
+from . import models, notifications, validation
 from .db import STATUS_LABELS, now
 
 
 class StockError(Exception):
     """A rejected operation, with a message meant for the person at the shelf."""
+
+
+def _clean(value, field, **kwargs) -> str:
+    """Validate a field, reporting problems the same way as any other refusal.
+
+    Text is checked here rather than at the routes so that a CSV import and a
+    typed form are held to identical standards.
+    """
+    try:
+        return validation.clean_text(value, field, **kwargs)
+    except validation.ValidationError as exc:
+        raise StockError(str(exc)) from exc
 
 
 # ------------------------------------------------- describing what happened ----
@@ -128,13 +140,15 @@ def create_item(conn: sqlite3.Connection, *, kind: str, name: str, category: str
                 asset_tag: str = "", serial_number: str = "", location: str = "",
                 notes: str = "", status: str = "in_stock", quantity: int = 0,
                 reorder_level: int = 0, actor: str = "") -> int:
-    name = name.strip()
-    if not name:
-        raise StockError("An item needs a name.")
     if kind not in ("asset", "consumable"):
         raise StockError("An item must be either an asset or a consumable.")
 
-    asset_tag = asset_tag.strip()
+    name = _clean(name, "name", required=True)
+    category = _clean(category, "category")
+    serial_number = _clean(serial_number, "serial_number")
+    location = _clean(location, "location")
+    notes = _clean(notes, "notes", multiline=True)
+    asset_tag = _clean(asset_tag, "asset_tag")
     if asset_tag and models.tag_exists(conn, asset_tag):
         raise StockError(f"Asset tag '{asset_tag}' is already used by another item.")
 
@@ -156,8 +170,8 @@ def create_item(conn: sqlite3.Connection, *, kind: str, name: str, category: str
         "INSERT INTO items (kind, name, category, asset_tag, serial_number, location,"
         " notes, status, assigned_to, quantity, reorder_level, created_at, updated_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
-        (kind, name, category.strip(), asset_tag or None, serial_number.strip(),
-         location.strip(), notes.strip(), row_status, row_qty, row_reorder, stamp, stamp),
+        (kind, name, category, asset_tag or None, serial_number,
+         location, notes, row_status, row_qty, row_reorder, stamp, stamp),
     )
     item_id = int(cur.lastrowid)
 
@@ -169,8 +183,8 @@ def create_item(conn: sqlite3.Connection, *, kind: str, name: str, category: str
         detail = f"Added as a consumable with {row_qty} in stock"
         detail += (f", reorder at {row_reorder}" if row_reorder
                    else ", no reorder level set")
-    if location.strip():
-        detail += f", kept in {location.strip()}"
+    if location:
+        detail += f", kept in {location}"
 
     # Opening stock counts as the first movement in, so the ledger balances.
     models.log(conn, item_id, "created", qty_delta=(row_qty or 0), actor=actor,
@@ -192,11 +206,13 @@ def update_item(conn: sqlite3.Connection, item_id: int, *, name: str, category: 
     change lands in the ledger as a stocktake adjustment.
     """
     item = _require_item(conn, item_id)
-    name = name.strip()
-    if not name:
-        raise StockError("An item needs a name.")
+    name = _clean(name, "name", required=True)
+    category = _clean(category, "category")
+    serial_number = _clean(serial_number, "serial_number")
+    location = _clean(location, "location")
+    notes = _clean(notes, "notes", multiline=True)
+    asset_tag = _clean(asset_tag, "asset_tag")
 
-    asset_tag = asset_tag.strip()
     if asset_tag and models.tag_exists(conn, asset_tag, exclude_id=item_id):
         raise StockError(f"Asset tag '{asset_tag}' is already used by another item.")
 
@@ -210,15 +226,15 @@ def update_item(conn: sqlite3.Connection, item_id: int, *, name: str, category: 
         elif item["status"] == "assigned":
             new_status = "assigned"
         proposed = {
-            "name": name, "category": category.strip(), "asset_tag": asset_tag or None,
-            "serial_number": serial_number.strip(), "location": location.strip(),
-            "notes": notes.strip(), "status": new_status,
+            "name": name, "category": category, "asset_tag": asset_tag or None,
+            "serial_number": serial_number, "location": location,
+            "notes": notes, "status": new_status,
         }
     else:
         proposed = {
-            "name": name, "category": category.strip(),
-            "serial_number": serial_number.strip(), "location": location.strip(),
-            "notes": notes.strip(), "reorder_level": max(0, int(reorder_level)),
+            "name": name, "category": category,
+            "serial_number": serial_number, "location": location,
+            "notes": notes, "reorder_level": max(0, int(reorder_level)),
         }
 
     changes = [describe_change(field, item[field], value)

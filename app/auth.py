@@ -24,11 +24,17 @@ import secrets
 import sqlite3
 from datetime import datetime, timedelta
 
+from . import validation
 from .db import now
 
 PBKDF2_ROUNDS = 600_000
 SESSION_COOKIE = "stock_session"
 SESSION_DAYS = 30
+
+# Guessing a password should be slow enough to be pointless. Five wrong tries
+# and that username is refused for fifteen minutes, whether or not it exists.
+MAX_FAILURES = 5
+LOCKOUT_MINUTES = 15
 
 
 class AuthError(Exception):
@@ -97,11 +103,11 @@ def list_users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 def create_user(conn: sqlite3.Connection, username: str, password: str,
                 display_name: str = "", is_admin: bool = False) -> int:
-    username = (username or "").strip()
-    if not username:
-        raise AuthError("A username is needed.")
-    if " " in username:
-        raise AuthError("Usernames can't contain spaces.")
+    try:
+        username = validation.clean_username(username)
+        display_name = validation.clean_text(display_name, "display_name")
+    except validation.ValidationError as exc:
+        raise AuthError(str(exc)) from exc
     if get_user_by_name(conn, username) is not None:
         raise AuthError(f"There is already a user called '{username}'.")
     check_password_rules(password)
@@ -109,7 +115,7 @@ def create_user(conn: sqlite3.Connection, username: str, password: str,
     cur = conn.execute(
         "INSERT INTO users (username, display_name, password_hash, is_admin,"
         " active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
-        (username, (display_name or username).strip(), hash_password(password),
+        (username, display_name or username, hash_password(password),
          1 if is_admin else 0, now()),
     )
     conn.commit()
@@ -141,9 +147,13 @@ def update_user(conn: sqlite3.Connection, user_id: int, display_name: str,
             raise AuthError(
                 "This is the only admin left. Make someone else an admin first.")
 
+    try:
+        display_name = validation.clean_text(display_name, "display_name")
+    except validation.ValidationError as exc:
+        raise AuthError(str(exc)) from exc
     conn.execute(
         "UPDATE users SET display_name = ?, is_admin = ?, active = ? WHERE id = ?",
-        ((display_name or user["username"]).strip(), 1 if is_admin else 0,
+        (display_name or user["username"], 1 if is_admin else 0,
          1 if active else 0, user_id))
     if not active:
         conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
@@ -156,17 +166,67 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def lockout_minutes_left(conn: sqlite3.Connection, username: str) -> int:
+    """Whole minutes until this username may try again. 0 if it may now."""
+    row = conn.execute(
+        "SELECT locked_until FROM login_attempts WHERE username = ? COLLATE NOCASE",
+        ((username or "").strip(),)).fetchone()
+    if row is None or not row["locked_until"]:
+        return 0
+    try:
+        until = datetime.fromisoformat(row["locked_until"])
+    except ValueError:
+        return 0
+    remaining = (until - datetime.now()).total_seconds()
+    return max(0, int(remaining // 60) + 1) if remaining > 0 else 0
+
+
+def _record_failure(conn: sqlite3.Connection, username: str) -> None:
+    username = (username or "").strip()
+    conn.execute(
+        "INSERT INTO login_attempts (username, failures, last_failure_at)"
+        " VALUES (?, 1, ?)"
+        " ON CONFLICT(username) DO UPDATE SET failures = failures + 1,"
+        " last_failure_at = excluded.last_failure_at",
+        (username, now()))
+    failures = conn.execute(
+        "SELECT failures FROM login_attempts WHERE username = ?",
+        (username,)).fetchone()["failures"]
+    if failures >= MAX_FAILURES:
+        until = (datetime.now() + timedelta(minutes=LOCKOUT_MINUTES)).isoformat(
+            sep=" ", timespec="seconds")
+        conn.execute("UPDATE login_attempts SET locked_until = ? WHERE username = ?",
+                     (until, username))
+    conn.commit()
+
+
+def _clear_failures(conn: sqlite3.Connection, username: str) -> None:
+    conn.execute("DELETE FROM login_attempts WHERE username = ? COLLATE NOCASE",
+                 ((username or "").strip(),))
+    conn.commit()
+
+
 def sign_in(conn: sqlite3.Connection, username: str, password: str) -> str:
     """Check credentials and return a new session token.
 
     The same message comes back whether the username or the password was
     wrong, so the form can't be used to find out who has an account.
     """
+    waiting = lockout_minutes_left(conn, username)
+    if waiting:
+        raise AuthError(
+            f"Too many failed attempts. Try again in {waiting} minute"
+            f"{'' if waiting == 1 else 's'}.")
+
     user = get_user_by_name(conn, username)
     if user is None or not verify_password(password, user["password_hash"]):
+        _record_failure(conn, username)
         raise AuthError("That username and password don't match.")
     if not user["active"]:
+        _record_failure(conn, username)
         raise AuthError("That account has been switched off.")
+
+    _clear_failures(conn, username)
 
     token = secrets.token_urlsafe(32)
     expires = (datetime.now() + timedelta(days=SESSION_DAYS)).isoformat(
@@ -201,3 +261,24 @@ def sign_out(conn: sqlite3.Connection, token: str) -> None:
 def clear_expired_sessions(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now(),))
     conn.commit()
+
+
+# ------------------------------------------------------------------ csrf ----
+
+def csrf_token(conn: sqlite3.Connection, session_token: str) -> str:
+    """A value tied to one session, for forms to send back.
+
+    Derived from the session cookie, which an attacker on another site cannot
+    read, so they cannot produce a matching token.
+    """
+    from .db import get_secret
+
+    if not session_token:
+        return ""
+    return hmac.new(get_secret(conn).encode("utf-8"),
+                    session_token.encode("utf-8"), hashlib.sha256).hexdigest()[:40]
+
+
+def csrf_ok(conn: sqlite3.Connection, session_token: str, supplied: str) -> bool:
+    expected = csrf_token(conn, session_token)
+    return bool(expected) and hmac.compare_digest(expected, supplied or "")

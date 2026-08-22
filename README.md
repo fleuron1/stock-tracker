@@ -252,6 +252,63 @@ climbs back above its level and drops again, that's treated as new and alerts
 again. A mail server problem never blocks a stock movement — the movement is
 saved and the failure is logged.
 
+## What protects this, and what doesn't
+
+**Nothing is readable or editable without signing in.** That's enforced in one
+place — middleware — rather than page by page, so a page added later is private
+by default and only a path named explicitly in `PUBLIC_PATHS` is open. The
+sign-in page, the health check and the stylesheet are the whole of that list.
+
+**SQL injection can't happen, and not because of a word blocklist.** Every
+query passes its values as parameters, so an item genuinely called
+`Robert'); DROP TABLE items;--` is stored, displayed and searched as those
+literal characters. Blocking words like "drop table" would reject real text and
+protect nothing. There are tests that store exactly that name and then check the
+tables are still standing.
+
+**Injected markup can't run.** Templates escape everything by default, so
+`<script>` typed into a name is shown as text. On top of that the pages send a
+Content-Security-Policy that permits no inline script at all, which is why the
+app's own JavaScript lives in `static/app.js` rather than in the page.
+
+**What you can type is checked.** Every field has a length limit; invisible
+characters and the bidirectional overrides that make text display differently
+from how it's stored are stripped out; accented characters are normalised so
+two spellings of the same name match; and emoji are refused in names, which
+keeps labels, exports and sorting predictable. Uploaded CSV rows go through the
+identical checks, reported by line number.
+
+**Passwords are guessed slowly.** They're hashed with PBKDF2-HMAC-SHA256 at
+600,000 rounds, and five wrong attempts locks that username for fifteen
+minutes — including usernames that don't exist, since otherwise the lockout
+itself would reveal which accounts are real.
+
+**Sessions can be cut off.** They live in the database, not in the cookie, and
+only a hash of each cookie is stored — so a copy of `stock.db` is not a set of
+working logins. The cookie is HttpOnly (script can't read it) and SameSite=Lax
+(another site can't make your browser post with it). A state-changing request
+that announces it came from another site is refused outright.
+
+### What is not protected
+
+**Traffic is not encrypted.** The app speaks plain HTTP, so on the office
+network passwords and everything else travel in the clear. Anyone able to
+capture traffic between a colleague's PC and the host can read them. Fixing
+this properly means putting HTTPS in front of it — a reverse proxy such as IIS,
+nginx or Caddy with a certificate — rather than anything the app can do to
+itself. Worth doing before this leaves a trusted network, and essential before
+it ever gets a public address.
+
+**The database file is not encrypted.** Anyone who can read `stock.db` on the
+host can read every record, and passwords being hashed only means they can't be
+read back — the inventory and history are plain. The right answer is disk
+encryption on the host (BitLocker on Windows) and normal file permissions, not
+encryption inside the app.
+
+**Anyone signed in can do anything to stock.** Roles separate managing accounts
+from using the app, and nothing further. There is no approval step and no
+read-only account.
+
 ## Backups
 
 The entire database is one file: `stock.db`. Copy it somewhere safe on a

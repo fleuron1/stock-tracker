@@ -10,6 +10,7 @@ import sqlite3
 from datetime import date
 from typing import Any, Iterable
 
+from . import validation
 from .db import now, today
 
 # Selecting items nearly always wants the assignee's name alongside, so this
@@ -37,10 +38,13 @@ def get_person(conn: sqlite3.Connection, person_id: int) -> sqlite3.Row | None:
 
 def create_person(conn: sqlite3.Connection, name: str, email: str = "",
                   department: str = "") -> int:
+    name = validation.clean_text(name, "name", required=True, label="name")
+    email = validation.clean_email(email)
+    department = validation.clean_text(department, "department")
     cur = conn.execute(
         "INSERT INTO people (name, email, department, active, created_at)"
         " VALUES (?, ?, ?, 1, ?)",
-        (name.strip(), email.strip(), department.strip(), now()),
+        (name, email, department, now()),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -50,7 +54,10 @@ def update_person(conn: sqlite3.Connection, person_id: int, name: str, email: st
                   department: str, active: bool) -> None:
     conn.execute(
         "UPDATE people SET name = ?, email = ?, department = ?, active = ? WHERE id = ?",
-        (name.strip(), email.strip(), department.strip(), 1 if active else 0, person_id),
+        (validation.clean_text(name, "name", required=True, label="name"),
+         validation.clean_email(email),
+         validation.clean_text(department, "department"),
+         1 if active else 0, person_id),
     )
     conn.commit()
 
